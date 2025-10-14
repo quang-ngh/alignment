@@ -1,0 +1,14 @@
+*.jpeg
+*.png
+*.safetensors
+*.pth
+*.pt
+*/__pycache__/
+*/.pytest_cache/
+*/.DS_Store
+
+__pycache__/
+trainer/
+*.egg-info/
+
+build/
