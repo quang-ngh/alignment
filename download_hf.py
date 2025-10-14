@@ -24,7 +24,8 @@ def download_hf_repo(repo_id, local_dir, repo_type="model", token=None, revision
             local_dir=local_dir,
             repo_type=repo_type,
             local_dir_use_symlinks=False,  # Download actual files instead of symlinks
-            ignore_patterns=["raw_labels/*"]
+            ignore_patterns=["raw_labels/*"],
+            max_workers=16
         )
         print(f"Successfully downloaded {repo_id} to {local_dir}")
         
