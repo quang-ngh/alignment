@@ -24,11 +24,12 @@ def download_hf_repo(repo_id, local_dir, repo_type="model", token=None, revision
             local_dir=local_dir,
             repo_type=repo_type,
             local_dir_use_symlinks=False,  # Download actual files instead of symlinks
-            ignore_patterns=["raw_labels/*"],
-            max_workers=16
+            # ignore_patterns=["raw_labels/*"],
+            allow_patterns=["FiFA-100k/*"],
+            max_workers=32
         )
         print(f"Successfully downloaded {repo_id} to {local_dir}")
-        
+       
     except Exception as e:
         print(f"Error downloading {repo_id}: {str(e)}")
         raise
@@ -39,7 +40,7 @@ def main(args):
 
     repo_id = args.repo_id
     local_dir = args.local_dir
-    repo_type = "model"  # "model", "dataset", or "space"
+    repo_type = "dataset"  # "model", "dataset", or "space"
     token = None  # Set to your HF token if needed for private repos
     revision = None  # Set to specific branch/tag/commit if needed
     
