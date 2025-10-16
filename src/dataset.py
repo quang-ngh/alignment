@@ -113,7 +113,6 @@ class DubiousDataset(BaseDataset):
         for i, item in enumerate(self.data_list):
             flipped_item = item.copy() 
             if i in flip_indices:
-                print("In the dubious dataset, flipping the label")
                 flipped_item["refer_id"] = 1 - item["refer_id"]
                 flipped_item["is_flip"] = True
             else:
@@ -131,8 +130,8 @@ class DubiousDataset(BaseDataset):
 if __name__ == "__main__":
     from torch.utils.data import DataLoader
 
-    good_dataset = BaseDataset(manifest="datasets/manifest/fifa_10k.json", image_dir="datasets/FiFA-100k/data/train")
-    dubious_dataset = DubiousDataset(manifest="datasets/manifest/fifa_100k.json", image_dir="datasets/FiFA-100k/data/train", flip_percentage=0.4)
+    good_dataset = BaseDataset(manifest="datasets/manifest/set1/good_from_10k.json", image_dir="datasets/FiFA-100k/data/train")
+    dubious_dataset = DubiousDataset(manifest="datasets/manifest/set1/dub_from_10k.json", image_dir="datasets/FiFA-100k/data/train", flip_percentage=0.4)
     
     good_dataloader = DataLoader(good_dataset, batch_size=4, shuffle=True)
     dubious_dataloader = DataLoader(dubious_dataset, batch_size=4, shuffle=True)
