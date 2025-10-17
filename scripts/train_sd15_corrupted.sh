@@ -14,4 +14,5 @@ accelerate launch --config-file "configs/train_multigpu.yaml" train_sd15_dpo_cor
     --num_train_epochs 10 \
     --checkpointing_steps 1000 \
     --gradient_checkpointing \
+    --learning_rate 1e-5 \
     --report_to "wandb" \
