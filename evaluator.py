@@ -176,6 +176,11 @@ def benchmarking_hpsv2(base_image_dir="output", prompt_dir="datasets/eval_prompt
         # total_samples = 20
         total_samples = len(prompts)
         prompts = prompts[:total_samples]
+        csv_path = os.path.join(save_dir, f"{basename}.csv")
+        if os.path.exists(csv_path):
+            print(f"CSV file {csv_path} already exists")
+            continue
+
         for idx, prompt in tqdm(enumerate(prompts), total=total_samples, desc=f"Evaluating {basename}"):  
             image_path = os.path.join(image_dir, f"image_{idx}.jpg")
             image = Image.open(image_path).convert("RGB")            
@@ -186,7 +191,7 @@ def benchmarking_hpsv2(base_image_dir="output", prompt_dir="datasets/eval_prompt
                 list_scores.append(score)
         
    # Save results to CSV
-        csv_path = os.path.join(save_dir, f"{basename}.csv")
+        
         with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['prompt', 'score'])
@@ -202,6 +207,6 @@ if __name__ == "__main__":
     from omegaconf import OmegaConf
     args = OmegaConf.from_cli()
     benchmarking_hpsv2(
-        image_dir=args.image_dir,
+        base_image_dir=args.image_dir,
         name=args.name,
     )
