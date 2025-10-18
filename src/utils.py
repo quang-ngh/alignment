@@ -3,6 +3,7 @@ import io
 from PIL import Image
 import concurrent.futures
 from datasets import load_dataset
+import json
 
 def process_example(args):
     idx, example, save_dir = args
@@ -61,5 +62,9 @@ def read_dataset(data_path, split="train", save_dir="/common/users/hn315/dataset
     f.close()
 
 
-def create_manifest(original_json, save_dir):
-    
+if __name__ == "__main__":
+    read_dataset(
+        data_path="path to fifa 100k parquet",
+        split="train",
+        save_dir="path to save images",
+    )
