@@ -4,7 +4,9 @@ import torch
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
 import hpsv2  
-
+import json
+from tqdm import tqdm
+import csv
 
 # Types
 ImageLike = Union[str, Image.Image]
@@ -148,3 +150,63 @@ def evaluate_all(
     }
 
 
+def benchmarking_hpsv2(base_image_dir="output", prompt_dir="datasets/eval_prompts", name="base_sd15"):
+    list_prompts = os.listdir(prompt_dir)
+    save_dir = os.path.join("eval_results", name)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+
+    for prompt_file in list_prompts:
+        if "hpsv2" not in prompt_file:
+            continue
+        prompt_path = os.path.join(prompt_dir, prompt_file)
+        with open(prompt_path, "r") as f:
+            prompts = json.load(f)
+        f.close()
+
+        basename = prompt_file.split(".")[0]
+        image_dir = os.path.join(base_image_dir, basename)
+        if not os.path.exists(image_dir):
+            print(f"Image directory {image_dir} does not exist")
+            continue
+        
+        list_scores = []
+        list_prompts = []
+
+        # total_samples = 20
+        total_samples = len(prompts)
+        prompts = prompts[:total_samples]
+        csv_path = os.path.join(save_dir, f"{basename}.csv")
+        if os.path.exists(csv_path):
+            print(f"CSV file {csv_path} already exists")
+            continue
+
+        for idx, prompt in tqdm(enumerate(prompts), total=total_samples, desc=f"Evaluating {basename}"):  
+            image_path = os.path.join(image_dir, f"image_{idx}.jpg")
+            image = Image.open(image_path).convert("RGB")            
+            list_prompts.append(prompt)
+
+            with torch.amp.autocast("cuda", dtype=torch.float32):
+                score = evaluate_hpsv2(image, prompt, hps_version="v2.0")
+                list_scores.append(score)
+        
+   # Save results to CSV
+        
+        with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['prompt', 'score'])
+            for p, s in zip(list_prompts, list_scores):
+                writer.writerow([p, f"{s:.4f}"])
+            avg_score = sum(list_scores) / len(list_scores) if list_scores else 0
+            writer.writerow([])
+            writer.writerow(['average', f"{avg_score:.4f}"])
+        print(f"Saved scores and average to {csv_path}")
+
+
+if __name__ == "__main__":
+    from omegaconf import OmegaConf
+    args = OmegaConf.from_cli()
+    benchmarking_hpsv2(
+        base_image_dir=args.image_dir,
+        name=args.name,
+    )
