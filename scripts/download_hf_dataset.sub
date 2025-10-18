@@ -1,0 +1,117 @@
+#!/bin/bash
+#SBATCH -J fifa_dataset              # Job name
+#SBATCH -o download_%j.out           # Output file (%j expands to jobID)
+#SBATCH -e download_%j.err           # Error log file
+#SBATCH --mail-type=ALL              # Request status by email
+#SBATCH --mail-user=tn375@cornell.edu  # Replace with your Cornell NetID
+#SBATCH -N 1                         # Total number of nodes
+#SBATCH -n 8                         # 8 cores for parallel downloads
+#SBATCH --get-user-env               # Retrieve login environment
+#SBATCH --mem=16000                  # 16GB RAM for handling large files
+#SBATCH -t 24:00:00                  # 24 hours (60GB at ~1MB/s = ~17 hours + buffer)
+#SBATCH --partition=zabih            # Your priority partition
+
+# Print job information
+echo "=========================================="
+echo "Job started on $(hostname) at $(date)"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Working directory: $(pwd)"
+echo "=========================================="
+
+# Load Anaconda environment
+export PATH=/share/apps/anaconda3/2022.10/bin:$PATH
+
+# Create and activate virtual environment
+if [ ! -d "$HOME/hf_env" ]; then
+    echo "Creating Python virtual environment..."
+    python -m venv $HOME/hf_env
+fi
+
+source $HOME/hf_env/bin/activate
+
+# Install/upgrade necessary packages
+pip install --upgrade pip
+pip install --upgrade huggingface-hub datasets tqdm
+
+# Set your data directory - using scratch for better I/O performance
+# Option 1: Use scratch (faster I/O, but local to node)
+DATA_DIR="/scratch/datasets/$USER/fifa_pickapic"
+
+# Option 2: Use shared storage (persistent, but slower)
+# DATA_DIR="/share/YOUR_DATASERVER/export/datasets/fifa_pickapic"
+
+# Create directory if it doesn't exist
+mkdir -p $DATA_DIR
+
+# Set Hugging Face cache directory
+export HF_HOME=$DATA_DIR/hf_cache
+export HF_DATASETS_CACHE=$DATA_DIR/hf_cache/datasets
+export TRANSFORMERS_CACHE=$DATA_DIR/hf_cache/transformers
+
+# Set environment variables for better performance
+export HF_HUB_ENABLE_HF_TRANSFER=1  # Enable faster transfers
+export HF_HUB_DISABLE_PROGRESS_BARS=0  # Show progress bars
+export HF_DATASETS_DOWNLOAD_TIMEOUT=7200  # 2 hour timeout per file
+
+# Navigate to data directory
+cd $DATA_DIR
+
+# Log disk space before download
+echo "=========================================="
+echo "Disk space before download:"
+df -h $DATA_DIR
+echo "=========================================="
+
+# Run the download script with error recovery
+MAX_RETRIES=3
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    echo "Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES"
+    
+    python $HOME/download_60gb_dataset.py
+    
+    if [ $? -eq 0 ]; then
+        echo "Download completed successfully!"
+        break
+    else
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            echo "Download failed. Retrying in 60 seconds..."
+            sleep 60
+        else
+            echo "Download failed after $MAX_RETRIES attempts."
+            exit 1
+        fi
+    fi
+done
+
+# Log disk space after download
+echo "=========================================="
+echo "Disk space after download:"
+df -h $DATA_DIR
+du -sh $DATA_DIR/*
+echo "=========================================="
+
+# Optional: Copy from scratch to permanent storage if using scratch
+if [[ $DATA_DIR == /scratch/* ]]; then
+    echo "Copying data from scratch to permanent storage..."
+    PERMANENT_DIR="/share/YOUR_DATASERVER/export/datasets/fifa_pickapic"
+    mkdir -p $PERMANENT_DIR
+    
+    # Use rsync for reliable copying with progress
+    rsync -avP --stats $DATA_DIR/ $PERMANENT_DIR/
+    
+    if [ $? -eq 0 ]; then
+        echo "Data successfully copied to permanent storage: $PERMANENT_DIR"
+    else
+        echo "WARNING: Failed to copy to permanent storage. Data remains in scratch."
+    fi
+fi
+
+echo "=========================================="
+echo "Job completed at $(date)"
+echo "=========================================="
+
+# Deactivate virtual environment
+deactivate
