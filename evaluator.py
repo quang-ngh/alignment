@@ -150,7 +150,7 @@ def evaluate_all(
     }
 
 
-def benchmarking_hpsv2(image_dir="output", prompt_dir="datasets/eval_prompts", name="base_sd15"):
+def benchmarking_hpsv2(base_image_dir="output", prompt_dir="datasets/eval_prompts", name="base_sd15"):
     list_prompts = os.listdir(prompt_dir)
     save_dir = os.path.join("eval_results", name)
     if not os.path.exists(save_dir):
@@ -165,7 +165,7 @@ def benchmarking_hpsv2(image_dir="output", prompt_dir="datasets/eval_prompts", n
         f.close()
 
         basename = prompt_file.split(".")[0]
-        image_dir = os.path.join(image_dir, basename)
+        image_dir = os.path.join(base_image_dir, basename)
         if not os.path.exists(image_dir):
             print(f"Image directory {image_dir} does not exist")
             continue
