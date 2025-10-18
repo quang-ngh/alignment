@@ -1,0 +1,18 @@
+accelerate launch --config-file "configs/train_multigpu.yaml" train_sd15_dpo_corrupted.py \
+    --mixed_precision "bf16" \
+    --pretrained_model_name_or_path "./checkpoints/sd15" \
+    --output_dir "training_runs/sd15_corrupted_dpo" \
+    --good_manifest "datasets/manifest/from_100k/good.json" \
+    --dubious_manifest "datasets/manifest/from_100k/dubious.json" \
+    --train_data_dir "datasets/FiFA-100k/data/train" \
+    --flip_percentage 0.4 \
+    --train_batch_size 16 \
+    --dataloader_num_workers 16 \
+    --gradient_accumulation_steps 2 \
+    --max_train_steps 20000 \
+    --learning_rate 1e-5 \
+    --num_train_epochs 10 \
+    --checkpointing_steps 1000 \
+    --gradient_checkpointing \
+    --learning_rate 1e-5 \
+    --report_to "wandb" \
