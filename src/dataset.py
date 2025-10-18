@@ -1,16 +1,13 @@
-import pyarrow.parquet as pq
-from datasets import load_dataset
-import io 
 from PIL import Image
 import os
 import json
-import concurrent.futures
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm
 import numpy as np
 import random
+from diffusers import AutoencoderKL
 
 class BaseDataset(Dataset):
     def __init__(self, manifest, image_dir, resolution=(512,512), latent_dir=None, transform=None):
@@ -132,9 +129,36 @@ if __name__ == "__main__":
 
     good_dataset = BaseDataset(manifest="datasets/manifest/set1/good_from_10k.json", image_dir="datasets/FiFA-100k/data/train")
     dubious_dataset = DubiousDataset(manifest="datasets/manifest/set1/dub_from_10k.json", image_dir="datasets/FiFA-100k/data/train", flip_percentage=0.4)
-    
+    vae = AutoencoderKL.from_pretrained("./checkpoints/sd15", subfolder="vae", torch_dtype=torch.bfloat16).to("cuda")
     good_dataloader = DataLoader(good_dataset, batch_size=4, shuffle=True)
     dubious_dataloader = DataLoader(dubious_dataset, batch_size=4, shuffle=True)
 
     for good_batch, dubious_batch in zip(good_dataloader, dubious_dataloader):
-        breakpoint()
+        win_images = good_batch["win_image"].to(vae.device, dtype=torch.bfloat16)
+        lose_images = good_batch["lose_image"].to(vae.device, dtype=torch.bfloat16)
+
+        win_latents = vae.encode(win_images.to(vae.device)).latent_dist.sample() * vae.config.scaling_factor
+        lose_latents = vae.encode(lose_images.to(vae.device)).latent_dist.sample() * vae.config.scaling_factor
+
+        #   Decode
+        win_images_decoded = (vae.decode(win_latents/vae.config.scaling_factor).sample / 2 + 0.5).clamp(0, 1)
+        lose_images_decoded = (vae.decode(lose_latents/vae.config.scaling_factor).sample / 2 + 0.5).clamp(0, 1)
+        
+        # INSERT_YOUR_CODE
+
+        # Save the first win image (decoded) and first lose image (decoded) from the batch
+        # Ensure directory exists for saves
+        import os
+        os.makedirs('./generated_test_images', exist_ok=True)
+        from torchvision.utils import make_grid, save_image
+
+        # Make a grid with win images decoded
+        win_grid = make_grid(win_images_decoded.cpu(), nrow=2)
+        save_image(win_grid, './generated_test_images/win_images_decoded_grid.png')
+
+        # Make a grid with lose images decoded
+        lose_grid = make_grid(lose_images_decoded.cpu(), nrow=2)
+        save_image(lose_grid, './generated_test_images/lose_images_decoded_grid.png')
+
+        print(good_batch["prompt"])
+        break
