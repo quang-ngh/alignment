@@ -44,6 +44,8 @@ if is_wandb_available():
 from transformers import AutoTokenizer, PretrainedConfig
 from src.dataset import BaseDataset, DubiousDataset
 
+from huggingface_hub import HfApi, create_repo
+
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.20.0")
@@ -378,6 +380,19 @@ def parse_args():
     parser.add_argument(
         "--soft_label_mode", action="store_true", help="Use soft label (reward-weighted dpo loss) mode"
     )
+    #HF Upload
+    parser.add_argument(
+        "--hf_repo_name",
+        type=str,
+        default="fifa-dpo-model",
+        help="Hugging Face repository name to upload the trained model to (e.g., 'username/model-name')"
+    )
+    parser.add_argument(
+        "--hf_model_subfolder",
+        type=str,
+        default="",
+        help="Subfolder within the HF repository to store this specific model"
+    )
     
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -616,7 +631,8 @@ def main():
 
     resolution = (512,512) # sd1.5
     good_dataset = BaseDataset(manifest=args.good_manifest, image_dir=args.train_data_dir, resolution=resolution)
-    dubious_dataset = DubiousDataset(manifest=args.dubious_manifest, image_dir=args.train_data_dir, flip_percentage=args.flip_percentage, resolution=resolution)
+    # dubious_dataset = DubiousDataset(manifest=args.dubious_manifest, image_dir=args.train_data_dir, flip_percentage=args.flip_percentage, resolution=resolution)
+    dubious_dataset = BaseDataset(manifest=args.dubious_manifest, image_dir=args.train_data_dir, resolution=resolution)
 
     # DataLoaders creation:
     good_dataloader = torch.utils.data.DataLoader(
@@ -983,6 +999,34 @@ def main():
         )
         pipeline.save_pretrained(args.output_dir)
 
+        # Upload to Hugging Face Hub
+        try:
+            hf_token = os.getenv("HUGGINGFACE_TOKEN")
+            if hf_token:
+                api = HfApi(token=hf_token)
+                repo_name = args.hf_repo_name if hasattr(args, "hf_repo_name") else "your-username/sd15-dpo-trained"
+                create_repo(repo_id=repo_name, token=hf_token, exist_ok=True)
+                
+                # Determine upload path
+                if hasattr(args, "hf_model_subfolder") and args.hf_model_subfolder:
+                    upload_path = f"{args.hf_model_subfolder}"
+                    print(f"Uploading model to {repo_name}/{upload_path}...")
+                else:
+                    upload_path = ""
+                    print(f"Uploading model to {repo_name}...")
+                
+                api.upload_folder(
+                    folder_path=args.output_dir,
+                    repo_id=repo_name,
+                    path_in_repo=upload_path,
+                    token=hf_token,
+                    commit_message=f"Upload trained DPO model: {args.hf_model_subfolder if args.hf_model_subfolder else 'main'}"
+                )
+                print(f"Model successfully uploaded to https://huggingface.co/{repo_name}/{upload_path}")
+            else:
+                print("HUGGINGFACE_TOKEN not found, skipping upload")
+        except Exception as e:
+            print(f"Failed to upload to Hugging Face: {e}")
 
     accelerator.end_training()
 
