@@ -64,7 +64,7 @@ def read_dataset(data_path, split="train", save_dir="/common/users/hn315/dataset
 
 if __name__ == "__main__":
     read_dataset(
-        data_path="path to fifa 100k parquet",
+        data_path="datasets/FiFA-100k",
         split="train",
-        save_dir="path to save images",
+        save_dir="/home/dkp45/dr-dpo/datasets/FiFA-100k/data",
     )
