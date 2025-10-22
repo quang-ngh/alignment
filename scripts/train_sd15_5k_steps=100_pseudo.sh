@@ -1,7 +1,7 @@
 accelerate launch --gpu_ids 0,1 --num_processes=2 train_sd15_dpo.py \
     --mixed_precision "bf16" \
     --pretrained_model_name_or_path "stable-diffusion-v1-5/stable-diffusion-v1-5" \
-    --output_dir "training_runs/sd15_5k_steps=100_dpo_pseudo" \
+    --output_dir "training_runs/sd15_5k_steps=100_pseudo" \
     --labeled_manifest "datasets/manifest/from_5k/labeled.json" \
     --unlabeled_manifest "datasets/manifest/from_5k/unlabeled.json" \
     --train_data_dir "datasets/FiFA-100k/data/train" \

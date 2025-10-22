@@ -15,4 +15,6 @@ accelerate launch --gpu_ids 2,3 --num_processes=2 train_sd15_dpo_dr.py \
     --beta_dpo 5000 \
     --report_to "wandb" \
     --mu 1.0 \
+    --curriculum quadratic \
+    # soft pseudo-label
     # --gradient_checkpointing \

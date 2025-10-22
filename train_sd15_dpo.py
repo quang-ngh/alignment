@@ -385,7 +385,7 @@ def parse_args():
         "--mu", type=float, default=1.0, help="ratio of unlabeled to labeled samples"
     )
     parser.add_argument(
-        "--use_pseudo_for_unlabeled", default=False, action="store_true", help="Use psuedo-label for unlabeled data instead of gt",
+        "--use_pseudo_for_unlabeled", default=False, action="store_true", help="Use pseudo-label for unlabeled data instead of gt",
     )
     
     args = parser.parse_args()

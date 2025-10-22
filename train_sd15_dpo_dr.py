@@ -384,6 +384,12 @@ def parse_args():
     parser.add_argument(
         "--mu", type=float, default=1.0, help="ratio of unlabeled to labeled samples"
     )
+    parser.add_argument(
+        "--hard_pseudo_label", default=False, action="store_true", help="Use hard pseudo-label (0/1) instead of soft pseudo-label (0-1)",
+    )
+    parser.add_argument(
+        "--curriculum", choices=['none', 'linear', 'quadratic'], default='none', help="Curriculum",
+    )
     
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -923,30 +929,37 @@ def main():
                     ref_diff = ref_losses_1 - ref_losses_0
                     raw_ref_loss = ref_losses.mean()
 
-                    pseudo_labeled_prefs = (ref_diff[:labeled_bsz] > 0).float()
-                    pseudo_unlabeled_prefs = (ref_diff[labeled_bsz:] > 0).float()
+                    if args.hard_pseudo_label:  
+                        pseudo_labeled_prefs = (ref_diff[:labeled_bsz] > 0).float()
+                        pseudo_unlabeled_prefs = (ref_diff[labeled_bsz:] > 0).float()
+                    else:
+                        pseudo_labeled_prefs = torch.sigmoid(ref_diff[:labeled_bsz])
+                        pseudo_unlabeled_prefs = torch.sigmoid(ref_diff[labeled_bsz:])
 
-                labeled_model_diff, unlabeled_model_diff = model_diff[:labeled_bsz], model_diff[labeled_bsz:]
-                labeled_ref_diff, unlabeled_ref_diff = ref_diff[:labeled_bsz], ref_diff[labeled_bsz:]
+                # labeled_model_diff, unlabeled_model_diff = model_diff[:labeled_bsz], model_diff[labeled_bsz:]
+                # labeled_ref_diff, unlabeled_ref_diff = ref_diff[:labeled_bsz], ref_diff[labeled_bsz:]
                     
                 scale_term = -0.5 * args.beta_dpo
-                # logits = scale_term * (model_diff - ref_diff)
+                logits = scale_term * (model_diff - ref_diff)
+                labeled_logits, unlabeled_logits = logits[:labeled_bsz], logits[labeled_bsz:]
 
-                labeled_logits = scale_term * (labeled_model_diff - labeled_ref_diff)
-                unlabeled_logits = scale_term * (unlabeled_model_diff - unlabeled_ref_diff)
-
-                labeled_preds = (labeled_logits > 0).float()
-                unlabeled_preds = (unlabeled_logits > 0).float()
-                implicit_preds = torch.cat([labeled_preds, unlabeled_preds], dim=0)
+                implicit_preds = (logits > 0).float()
                 implicit_acc = (implicit_preds == prefs).sum().float() / implicit_preds.size(0)
-                pseudo_unlabeled_acc = (pseudo_unlabeled_prefs == unlabeled_prefs).sum().float() / pseudo_unlabeled_prefs.size(0)
+                pseudo_unlabeled_acc = (torch.round(pseudo_unlabeled_prefs) == unlabeled_prefs).sum().float() / pseudo_unlabeled_prefs.size(0)
 
                 from torch.nn.functional import binary_cross_entropy_with_logits
 
-                pseudo_labeled_loss = binary_cross_entropy_with_logits(labeled_logits, labeled_prefs, reduction='sum')
+                if args.curriculum == 'linear':
+                    curriculum_weight = global_step / args.max_train_steps
+                elif args.curriculum == 'quadratic':
+                    curriculum_weight = (global_step / args.max_train_steps) ** 2
+                else:
+                    curriculum_weight = 1.0
+
+                pseudo_labeled_loss = binary_cross_entropy_with_logits(labeled_logits, pseudo_labeled_prefs, reduction='sum')
                 pseudo_unlabeled_loss = binary_cross_entropy_with_logits(unlabeled_logits, pseudo_unlabeled_prefs, reduction='sum')
                 labeled_loss = binary_cross_entropy_with_logits(labeled_logits, labeled_prefs, reduction='sum')
-                loss = labeled_loss / labeled_bsz + (pseudo_labeled_loss + pseudo_unlabeled_loss) / bsz - pseudo_unlabeled_loss / unlabeled_bsz
+                loss = (pseudo_labeled_loss + pseudo_unlabeled_loss) / bsz + curriculum_weight * (labeled_loss - pseudo_labeled_loss) / labeled_bsz
                 #### END LOSS COMPUTATION ###
                     
                 # Gather the losses across all processes for logging 
