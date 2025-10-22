@@ -7,8 +7,6 @@ Usage:
 """
 
 import modal
-import os
-import json
 
 # Configuration
 CHECKPOINT_PATH = "/data/training_runs/sd15_corrupted_dpo/checkpoint-1000"
@@ -40,7 +38,7 @@ volume = modal.Volume.from_name("fifa-data", create_if_missing=False)
     image=image,
     volumes={"/data": volume},
     gpu="A100",
-    timeout=3600
+    timeout=8400
 )
 def generate_images_only():
     """Generate images from UNet checkpoint."""
@@ -48,16 +46,17 @@ def generate_images_only():
     import sys
     import os
     from pathlib import Path
+    from tqdm import tqdm
     
     sys.path.insert(0, "/root")
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     
-    print(f"Starting image generation...")
+    print("Starting image generation...")
     print(f"Using checkpoint: {CHECKPOINT_PATH}")
     
     # Create output directory
-    output_dir = Path("/data/evaluation_output/generated_images")
+    output_dir = Path("/data/evaluation_output_1k/generated_images")
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Get available prompt files
@@ -65,8 +64,9 @@ def generate_images_only():
     prompt_files = [f for f in os.listdir(prompt_dir) if f.endswith('.json')]
     print(f"Available prompt files: {prompt_files}")
     
-    # Generate images for each category
-    for prompt_file in prompt_files:
+    # Generate images for each category with progress bar
+    for prompt_file in tqdm(prompt_files, desc="Processing categories", 
+                            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'):
         category = prompt_file.replace('.json', '').replace('hpsv2_', '')
         prompt_path = os.path.join(prompt_dir, prompt_file)
         category_images_dir = output_dir / category
@@ -92,16 +92,20 @@ def generate_images_only():
                 print(f"Error details: {e.stderr[-500:]}")
             continue
     
-    print(f"\nImage generation completed!")
+    print("\nImage generation completed!")
     print(f"Images saved to: {output_dir}")
     
-    # List generated files
+    # List generated files with progress
     print("\nGenerated files:")
+    all_files = []
     for root, dirs, files in os.walk(output_dir):
         for file in files:
             if file.endswith('.jpg'):
                 file_path = os.path.join(root, file)
-                print(f"  - {file_path}")
+                all_files.append(file_path)
+    
+    for file_path in tqdm(all_files, desc="Listing generated files"):
+        print(f"  - {file_path}")
 
 @app.local_entrypoint()
 def main():

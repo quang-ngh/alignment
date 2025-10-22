@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Step 2: Evaluate generated images using HPSv2, PickScore, and ImageReward.
+Evaluate generated images using HPSv2 and PickScore only.
 
 Usage:
     modal run eval_only.py
@@ -38,11 +38,9 @@ eval_image = (
         "cd /root && python -c \"from huggingface_hub import snapshot_download; snapshot_download('laion/CLIP-ViT-H-14-laion2B-s32B-b79K', local_dir='/root/checkpoints/CLIP-ViT-H-14-laion2B-s32B-b79K')\"",
         "cd /root && python -c \"from huggingface_hub import snapshot_download; snapshot_download('yuvalkirstain/PickScore_v1', local_dir='/root/checkpoints/pickscore_v1')\""
     ])
-    # Add local files
     .add_local_file("../evaluator.py", "/root/evaluator.py")
     .add_local_dir("../datasets/eval_prompts", "/root/datasets/eval_prompts")
     .add_local_dir("../HPSv2", "/root/HPSv2")
-    .add_local_dir("../ImageReward", "/root/ImageReward")
 )
 
 app = modal.App("eval-only")
@@ -59,39 +57,74 @@ volume = modal.Volume.from_name("fifa-data", create_if_missing=False)
     ]
 )
 def evaluate_images_only():
-    """Evaluate generated images using all metrics."""
-    import subprocess
+    """Evaluate generated images using PickScore and HPSv2 only."""
     import sys
-    import os
-    from pathlib import Path
-    import torch
+    import subprocess
+    import pandas as pd
     from tqdm import tqdm
     
+    # Setup
     sys.path.insert(0, "/root")
+    sys.path.insert(0, "/root/HPSv2")
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     
     print(f"Starting evaluation for: {MODEL_NAME}")
     
-    # Install local packages after files are available
-    print("Installing HPSv2 and ImageReward...")
-    import subprocess
-    subprocess.run(["cd", "/root/HPSv2", "&&", "pip", "install", "-r", "requirements.txt", "&&", "pip", "install", "-e", "."], shell=True)
-    subprocess.run(["cd", "/root/ImageReward", "&&", "python", "setup.py", "develop"], shell=True)
-    print("Local packages installed successfully")
+    # Install HPSv2
+    print("Installing HPSv2...")
+    try:
+        # Install requirements first
+        subprocess.run(["pip", "install", "-r", "/root/HPSv2/requirements.txt"], 
+                      capture_output=True, text=True, check=True)
+        print("HPSv2 requirements installed successfully")
+        
+        # Install HPSv2 package
+        subprocess.run(["pip", "install", "-e", "/root/HPSv2"], 
+                      capture_output=True, text=True, check=True)
+        print("HPSv2 package installed successfully")
+        
+        # Verify installation
+        import hpsv2
+        print("HPSv2 import successful")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"HPSv2 installation failed: {e}")
+        print(f"stdout: {e.stdout}")
+        print(f"stderr: {e.stderr}")
+        return
+    except ImportError as e:
+        print(f"HPSv2 import failed: {e}")
+        print("Trying to install HPSv2 from GitHub...")
+        try:
+            subprocess.run(["pip", "install", "git+https://github.com/tgxs002/HPSv2.git"], 
+                          capture_output=True, text=True, check=True)
+            import hpsv2
+            print("HPSv2 installed from GitHub successfully")
+        except Exception as e2:
+            print(f"Failed to install HPSv2 from GitHub: {e2}")
+            print("Trying to use local HPSv2 module...")
+            try:
+                # Try to import directly from the local directory
+                import sys
+                sys.path.insert(0, "/root/HPSv2/hpsv2")
+                import hpsv2
+                print("HPSv2 imported from local directory successfully")
+            except Exception as e3:
+                print(f"Failed to import HPSv2 from local directory: {e3}")
+                return
     
-    # Create output directories
-    images_dir = Path("/data/evaluation_output/generated_images")
-    results_dir = Path("/data/evaluation_output/evaluation_results")
+    # Setup directories
+    images_dir = Path("/data/evaluation_output_1k/generated_images")
+    results_dir = Path("/data/evaluation_output_1k_2/evaluation_results_1k_2")
     results_dir.mkdir(parents=True, exist_ok=True)
     
-    # Check if images exist
     if not images_dir.exists():
         print(f"Error: Images directory {images_dir} does not exist!")
         print("Please run generate_only.py first to generate images.")
         return
     
-    # Get available image categories
+    # Get image categories
     image_categories = [d for d in os.listdir(images_dir) if os.path.isdir(images_dir / d)]
     print(f"Found image categories: {image_categories}")
     
@@ -99,114 +132,94 @@ def evaluate_images_only():
         print("No image categories found!")
         return
     
-    # Evaluate images
+    # Import evaluators
+    from evaluator import evaluate_pickscore, evaluate_hpsv2
+    
     print("\n" + "="*60)
-    print("EVALUATING IMAGES")
+    print("EVALUATING IMAGES WITH PICKSORE AND HPSV2")
     print("="*60)
     
-    try:
-        from evaluator import evaluate_all
-        import pandas as pd
-        
-        all_results = {}
-        
-        for category in image_categories:
-            image_dir = images_dir / category
-            
-            # Load corresponding prompts
-            prompt_file = f"hpsv2_{category}.json"
-            prompt_path = f"/root/datasets/eval_prompts/{prompt_file}"
-            
-            if not os.path.exists(prompt_path):
-                print(f"Prompt file {prompt_file} not found, skipping {category}")
-                continue
-            
-            # Load prompts
-            with open(prompt_path, 'r') as f:
-                prompts = json.load(f)
-            
-            # Count available images
-            image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg')]
-            if len(image_files) == 0:
-                print(f"No images found in {image_dir}, skipping {category}")
-                continue
-            
-            # Limit to available images
-            num_images = min(len(prompts), len(image_files))
-            prompts = prompts[:num_images]
-            
-            print(f"Evaluating {num_images} image-prompt pairs for {category}...")
-            
-            # Run individual image evaluations
-            detailed_results = []
-            for i in tqdm(range(num_images), desc=f"Evaluating {category}"):
-                try:
-                    image_path = os.path.join(image_dir, f"image_{i}.jpg")
-                    if not os.path.exists(image_path):
-                        continue
-                    
-                    # Evaluate with all metrics
-                    scores = evaluate_all(
-                        image=image_path,
-                        prompt=prompts[i],
-                        hps_version="v2.1"
-                    )
-                    
-                    detailed_results.append({
-                        'image_id': i,
-                        'prompt': prompts[i],
-                        'image_path': image_path,
-                        **scores
-                    })
-                    
-                except Exception as e:
-                    print(f"Error evaluating image {i}: {e}")
-                    continue
-            
-            # Save detailed results
-            if detailed_results:
-                df = pd.DataFrame(detailed_results)
-                detailed_output_path = results_dir / f"{MODEL_NAME}_{category}_detailed.csv"
-                df.to_csv(detailed_output_path, index=False)
-                
-                # Calculate summary statistics
-                summary = {
-                    'category': category,
-                    'num_samples': len(detailed_results),
-                    'hpsv2_mean': df['hpsv2'].mean(),
-                    'hpsv2_std': df['hpsv2'].std(),
-                    'pickscore_mean': df['pickscore'].mean(),
-                    'pickscore_std': df['pickscore'].std(),
-                    'imagereward_mean': df['imagereward'].mean(),
-                    'imagereward_std': df['imagereward'].std(),
-                }
-                
-                all_results[category] = summary
-                
-                print(f"Category: {category}")
-                print(f"  Samples: {summary['num_samples']}")
-                print(f"  HPSv2: {summary['hpsv2_mean']:.4f} ± {summary['hpsv2_std']:.4f}")
-                print(f"  PickScore: {summary['pickscore_mean']:.4f} ± {summary['pickscore_std']:.4f}")
-                print(f"  ImageReward: {summary['imagereward_mean']:.4f} ± {summary['imagereward_std']:.4f}")
-        
-        # Save overall summary
-        if all_results:
-            summary_df = pd.DataFrame.from_dict(all_results, orient='index')
-            summary_output_path = results_dir / f"{MODEL_NAME}_summary.csv"
-            summary_df.to_csv(summary_output_path)
-            print(f"\nOverall summary saved to {summary_output_path}")
-        
-        print("Evaluation completed successfully")
-    except Exception as e:
-        print(f"Evaluation failed: {e}")
-        import traceback
-        traceback.print_exc()
+    all_results = {}
     
-    # Print results
+    for category in image_categories:
+        image_dir = images_dir / category
+        prompt_path = f"/root/datasets/eval_prompts/hpsv2_{category}.json"
+        
+        if not os.path.exists(prompt_path):
+            print(f"Prompt file hpsv2_{category}.json not found, skipping {category}")
+            continue
+        
+        # Load prompts
+        with open(prompt_path, 'r') as f:
+            prompts = json.load(f)
+        
+        # Get available images
+        image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg')]
+        if not image_files:
+            print(f"No images found in {image_dir}, skipping {category}")
+            continue
+        
+        # Limit to available images
+        num_images = min(len(prompts), len(image_files))
+        prompts = prompts[:num_images]
+        
+        print(f"Evaluating {num_images} image-prompt pairs for {category}...")
+        
+        # Evaluate images
+        detailed_results = []
+        for i in tqdm(range(num_images), desc=f"Evaluating {category}"):
+            image_path = os.path.join(image_dir, f"image_{i}.jpg")
+            if not os.path.exists(image_path):
+                continue
+            
+            try:
+                pickscore = evaluate_pickscore(image=image_path, prompt=prompts[i])
+                hpsv2_score = evaluate_hpsv2(image=image_path, prompt=prompts[i], hps_version="v2.1")
+                
+                detailed_results.append({
+                    'image_id': i,
+                    'prompt': prompts[i],
+                    'image_path': image_path,
+                    'pickscore': pickscore,
+                    'hpsv2': hpsv2_score
+                })
+            except Exception as e:
+                print(f"Error evaluating image {i}: {e}")
+                continue
+        
+        # Save results
+        if detailed_results:
+            df = pd.DataFrame(detailed_results)
+            detailed_output_path = results_dir / f"{MODEL_NAME}_{category}_detailed_1k_2.csv"
+            df.to_csv(detailed_output_path, index=False)
+            
+            # Calculate summary
+            summary = {
+                'category': category,
+                'num_samples': len(detailed_results),
+                'hpsv2_mean': df['hpsv2'].mean(),
+                'hpsv2_std': df['hpsv2'].std(),
+                'pickscore_mean': df['pickscore'].mean(),
+                'pickscore_std': df['pickscore'].std(),
+            }
+            
+            all_results[category] = summary
+            
+            print(f"Category: {category}")
+            print(f"  Samples: {summary['num_samples']}")
+            print(f"  HPSv2: {summary['hpsv2_mean']:.4f} ± {summary['hpsv2_std']:.4f}")
+            print(f"  PickScore: {summary['pickscore_mean']:.4f} ± {summary['pickscore_std']:.4f}")
+    
+    # Save overall summary
+    if all_results:
+        summary_df = pd.DataFrame.from_dict(all_results, orient='index')
+        summary_output_path = results_dir / f"{MODEL_NAME}_summary_1k_2.csv"
+        summary_df.to_csv(summary_output_path)
+        print(f"\nOverall summary saved to {summary_output_path}")
+    
     print("\n" + "="*60)
     print("EVALUATION COMPLETE!")
     print("="*60)
-    
     print(f"Generated images: {images_dir}")
     print(f"Evaluation results: {results_dir}")
     
@@ -215,8 +228,7 @@ def evaluate_images_only():
     for root, dirs, files in os.walk(results_dir):
         for file in files:
             if file.endswith('.csv'):
-                file_path = os.path.join(root, file)
-                print(f"  - {file_path}")
+                print(f"  - {os.path.join(root, file)}")
 
 @app.local_entrypoint()
 def main():
@@ -227,4 +239,4 @@ def main():
     evaluate_images_only.remote()
     
     print("\nTo download results, run:")
-    print("modal volume get fifa-data /data/evaluation_output/evaluation_results ./local_eval_results")
+    print("modal volume get fifa-data /data/evaluation_output_1k_2/evaluation_results_1k_2 ./local_eval_results")
