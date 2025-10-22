@@ -235,17 +235,26 @@ def main(args):
         if 'xl' in args.pretrained_model_name_or_path:
             args.version = "pretrain_sdxl"
 
+    # Check if we should skip processing
     if args.overwrite == 0:
-        # first check the existenc of the file
-        if os.path.exists(f"{args.output_dir}/{args.version}_{args.dataset}.json"):
-            with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "r") as f:
-                data = json.load(f)
-                if len(data) == len(prompt_list):
-                    raise ValueError("Already finished")
-            
-    with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "w") as f:
-        # save the empty dictionary
-        json.dump({}, f)
+        # first check the existence of the file
+        output_file = f"{args.output_dir}/{args.version}_{args.dataset}.json"
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, "r") as f:
+                    data = json.load(f)
+                    if len(data) == len(prompt_list):
+                        print("All prompts already processed. Exiting.")
+                        return
+            except (json.JSONDecodeError, FileNotFoundError):
+                print(f"Error reading existing file {output_file}. Will overwrite.")
+    
+    # Create empty file to mark start of processing (only on main process)
+    if state.is_main_process:
+        output_file = f"{args.output_dir}/{args.version}_{args.dataset}.json"
+        with open(output_file, "w") as f:
+            json.dump({}, f)
+        print(f"Created output file: {output_file}")
 
 
     batch = 4
@@ -307,27 +316,68 @@ def main(args):
     
     
     with state.split_between_processes(prompt_list) as sub_prompts:
-        for prompt in tqdm(sub_prompts):
+        print(f"Process {state.process_index}: Processing {len(sub_prompts)} prompts")
+        for prompt in tqdm(sub_prompts, desc=f"Process {state.process_index}"):
             subroutine(prompt, seeds)
+        
+        # Calculate statistics for this process's rewards
         for prompt, v in rewards.items():
-            rewards[prompt]['mean'] = torch.mean(torch.tensor(v['rewards'])).item()
-            rewards[prompt]['std'] = torch.std(torch.tensor(v['rewards'])).item()
-            rewards[prompt]['rewards'] = [x.item() if hasattr(x, 'item') else x for x in v['rewards']]
-        # save file, but if exists, add more data
+            if v['rewards']:  # Only calculate if there are rewards
+                rewards[prompt]['mean'] = torch.mean(torch.tensor(v['rewards'])).item()
+                rewards[prompt]['std'] = torch.std(torch.tensor(v['rewards'])).item()
+                rewards[prompt]['rewards'] = [x.item() if hasattr(x, 'item') else x for x in v['rewards']]
+        
+        print(f"Process {state.process_index}: Completed {len(rewards)} prompts")
 
-
-    # Todo : Current code requires two gpus for saving the file
-    # If you want to use only one or more than two gpus, then you need to change the code
-    with state.main_process_first():
-        with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "r") as f:
-            print(f"{args.output_dir}/{args.version}_{args.dataset}.json")
-            data = json.load(f)
-
+    # Gather rewards from all processes and save on main process
+    if state.num_processes > 1:
+        # Use a different approach - save each process's results to separate files
+        # then merge them on the main process
+        
+        # Each process saves its own results
+        process_output_file = f"{args.output_dir}/{args.version}_{args.dataset}_process_{state.process_index}.json"
+        with open(process_output_file, "w") as f:
+            json.dump(rewards, f, indent=4)
+        print(f"Process {state.process_index}: Saved {len(rewards)} prompts to {process_output_file}")
+        
+        # Wait for all processes to finish saving
+        state.wait_for_everyone()
+        
+        # Only the main process merges all files
+        if state.is_main_process:
+            final_rewards = {}
+            
+            # Load existing data if file exists
+            if os.path.exists(f"{args.output_dir}/{args.version}_{args.dataset}.json"):
+                with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "r") as f:
+                    existing_data = json.load(f)
+                final_rewards.update(existing_data)
+            
+            # Merge all process files
+            for process_idx in range(state.num_processes):
+                process_file = f"{args.output_dir}/{args.version}_{args.dataset}_process_{process_idx}.json"
+                if os.path.exists(process_file):
+                    with open(process_file, "r") as f:
+                        process_data = json.load(f)
+                    final_rewards.update(process_data)
+                    print(f"Merged {len(process_data)} prompts from process {process_idx}")
+                    # Clean up the temporary file
+                    os.remove(process_file)
+            
+            # Save the final merged data
+            with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "w") as f:
+                json.dump(final_rewards, f, indent=4)
+            print(f"Saved final results with {len(final_rewards)} prompts to {args.output_dir}/{args.version}_{args.dataset}.json")
+    else:
+        # Single process - just save directly
+        if os.path.exists(f"{args.output_dir}/{args.version}_{args.dataset}.json"):
+            with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "r") as f:
+                existing_data = json.load(f)
+            rewards.update(existing_data)
+        
         with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "w") as f:
-            data.update(rewards)
-            json.dump(data, f, indent=4)
-
-    state.wait_for_everyone()
+            json.dump(rewards, f, indent=4)
+        print(f"Saved results to {args.output_dir}/{args.version}_{args.dataset}.json")
 
 
     del pipe
