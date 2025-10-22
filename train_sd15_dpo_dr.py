@@ -384,9 +384,6 @@ def parse_args():
     parser.add_argument(
         "--mu", type=float, default=1.0, help="ratio of unlabeled to labeled samples"
     )
-    parser.add_argument(
-        "--use_pseudo_for_unlabeled", default=False, action="store_true", help="Use psuedo-label for unlabeled data instead of gt",
-    )
     
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -617,8 +614,6 @@ def main():
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
 
-    ### DATASET #####
-
     resolution = (512,512) # sd1.5
     labeled_dataset = BaseDataset(manifest=args.labeled_manifest, image_dir=args.train_data_dir, resolution=resolution)
     unlabeled_dataset = BaseDataset(manifest=args.unlabeled_manifest, image_dir=args.train_data_dir, resolution=resolution)
@@ -771,7 +766,7 @@ def main():
                 labeled_prompts = labeled_batch["prompt"]
                 labeled_images_0 = labeled_batch["image_0"]
                 labeled_images_1 = labeled_batch["image_1"]
-                labeled_prefs = labeled_batch["preference"]
+                labeled_prefs = labeled_batch["preference"].to(accelerator.device, dtype=weight_dtype)
                 use_latent_from_labeled = labeled_batch.get("use_latent", False)
                 if use_latent_from_labeled:
                     labeled_latents_0 = labeled_batch["latent_0"]
@@ -785,7 +780,7 @@ def main():
                 unlabeled_prompts = unlabeled_batch["prompt"]
                 unlabeled_images_0 = unlabeled_batch["image_0"]
                 unlabeled_images_1 = unlabeled_batch["image_1"]
-                unlabeled_prefs = unlabeled_batch["preference"]
+                unlabeled_prefs = unlabeled_batch["preference"].to(accelerator.device, dtype=weight_dtype)
                 use_latent_from_unlabeled = unlabeled_batch.get("use_latent", False)
                 if use_latent_from_unlabeled:
                     unlabeled_latents_0 = unlabeled_batch["latent_0"]
@@ -798,6 +793,14 @@ def main():
                 labeled_bsz = labeled_images_0.shape[0]
                 unlabeled_bsz = unlabeled_images_0.shape[0]
                 bsz = labeled_bsz + unlabeled_bsz
+
+                prefs = torch.cat(
+                    [
+                        labeled_prefs,
+                        unlabeled_prefs,
+                    ],
+                    dim=0
+                ).to(accelerator.device, dtype=weight_dtype)
 
                 latents_0 = torch.cat(
                     [
@@ -820,9 +823,8 @@ def main():
                 ).to(accelerator.device, dtype=weight_dtype)
 
                 noise = torch.randn_like(latents) 
-                bsz = latents.shape[0]
                 # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=latents.device)
                 timesteps = timesteps.long()
                 # only first 20% timesteps for SDXL refiner
                 if 'refiner' in args.pretrained_model_name_or_path:
@@ -836,7 +838,7 @@ def main():
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
                 # Get the text embedding for conditioning
-                input_prompts = labeled_prompts[:bsz] + unlabeled_prompts[:bsz]
+                input_prompts = labeled_prompts + unlabeled_prompts
                 input_ids = tokenizer(input_prompts, max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt").input_ids
                 with torch.no_grad():
                     encoder_hidden_states = text_encoder(input_ids.to(accelerator.device))[0]
@@ -883,7 +885,6 @@ def main():
                 #         encoder_hidden_states = encoder_hidden_states.repeat(2, 1, 1)
                 #### END PREP BATCH ####
 
-                        
                 assert noise_scheduler.config.prediction_type == "epsilon"
                 target = noise
                
@@ -910,7 +911,7 @@ def main():
                 # (e_0 - e_theta(x_0)^2)
                 # (e_1 - e_theta(x_1)^2)
                 model_diff = model_losses_1 - model_losses_0
-                
+
                 with torch.no_grad(): # Get the reference policy (unet) prediction
                     ref_pred = ref_unet(
                                 *model_batch_args,
@@ -925,32 +926,27 @@ def main():
                     pseudo_labeled_prefs = (ref_diff[:labeled_bsz] > 0).float()
                     pseudo_unlabeled_prefs = (ref_diff[labeled_bsz:] > 0).float()
 
-                if args.use_pseudo_for_unlabeled:
-                    prefs = torch.cat(
-                        [
-                            labeled_prefs,
-                            pseudo_unlabeled_prefs,
-                        ],
-                        dim=0
-                    ).to(accelerator.device, dtype=weight_dtype)
-                else:
-                    prefs = torch.cat(
-                        [
-                            labeled_prefs,
-                            unlabeled_prefs,
-                        ],
-                        dim=0
-                    ).to(accelerator.device, dtype=weight_dtype)
-
+                labeled_model_diff, unlabeled_model_diff = model_diff[:labeled_bsz], model_diff[labeled_bsz:]
+                labeled_ref_diff, unlabeled_ref_diff = ref_diff[:labeled_bsz], ref_diff[labeled_bsz:]
                     
                 scale_term = -0.5 * args.beta_dpo
-                logits = scale_term * (model_diff - ref_diff)
-                implicit_preds = (logits > 0).float()
+                # logits = scale_term * (model_diff - ref_diff)
+
+                labeled_logits = scale_term * (labeled_model_diff - labeled_ref_diff)
+                unlabeled_logits = scale_term * (unlabeled_model_diff - unlabeled_ref_diff)
+
+                labeled_preds = (labeled_logits > 0).float()
+                unlabeled_preds = (unlabeled_logits > 0).float()
+                implicit_preds = torch.cat([labeled_preds, unlabeled_preds], dim=0)
                 implicit_acc = (implicit_preds == prefs).sum().float() / implicit_preds.size(0)
                 pseudo_unlabeled_acc = (pseudo_unlabeled_prefs == unlabeled_prefs).sum().float() / pseudo_unlabeled_prefs.size(0)
-                
+
                 from torch.nn.functional import binary_cross_entropy_with_logits
-                loss = binary_cross_entropy_with_logits(logits, prefs).mean()
+
+                pseudo_labeled_loss = binary_cross_entropy_with_logits(labeled_logits, labeled_prefs, reduction='sum')
+                pseudo_unlabeled_loss = binary_cross_entropy_with_logits(unlabeled_logits, pseudo_unlabeled_prefs, reduction='sum')
+                labeled_loss = binary_cross_entropy_with_logits(labeled_logits, labeled_prefs, reduction='sum')
+                loss = labeled_loss / labeled_bsz + (pseudo_labeled_loss + pseudo_unlabeled_loss) / bsz - pseudo_unlabeled_loss / unlabeled_bsz
                 #### END LOSS COMPUTATION ###
                     
                 # Gather the losses across all processes for logging 
