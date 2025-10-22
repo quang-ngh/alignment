@@ -1,0 +1,11 @@
+CUDA_VISIBLE_DEVICES=0,1 accelerate launch --num_processes=2 \
+    --mixed_precision=fp16 --main_process_port=25600 fifa_test.py \
+    --prompts_path fifa_test_data/qas_test_filtered.json \
+    --model-path "training_runs/sd15_5k" \
+    --version "sd15_5k_steps=100" \
+    --dataset pickscore \
+    --reward_type pickscore \
+    --pretrained_model_name_or_path "stable-diffusion-v1-5/stable-diffusion-v1-5" \
+    --output-dir "outputs" \
+    --num_imgs_per_prompt 4 \
+    --overwrite 0
