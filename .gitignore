@@ -1,3 +1,5 @@
+wandb
+training_runs
 *.jpg
 *.jpeg
 *.png
