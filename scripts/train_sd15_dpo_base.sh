@@ -8,7 +8,8 @@ accelerate launch --config-file "configs/train_multigpu.yaml" train_sd15_dpo_bas
     --dataloader_num_workers 16 \
     --gradient_accumulation_steps 8 \
     --max_train_steps 1000 \
-    --learning_rate 1e-5 \
+    --learning_rate 1e-7 \
+    --lr_warmup_steps 10 \
     --num_train_epochs 10 \
     --checkpointing_steps 100 \
     --gradient_checkpointing \
