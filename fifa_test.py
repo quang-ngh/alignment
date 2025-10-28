@@ -217,15 +217,26 @@ def main(args):
             )
 
     # check the output directory
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+    if state.is_main_process:
+        os.makedirs(args.output_dir, exist_ok=True)
     
+    # Wait for main process to create directory
+    state.wait_for_everyone()
+
+    # Create image directory upfront (all prompts will use the same directory)
+    if args.reward_type == "aesthetic" or args.reward_type == "clipscore":
+        image_folder = f"{args.output_dir}/{args.version}_{args.dataset}/images"
+    else:
+        image_folder = f"{args.output_dir}/{args.reward_type}/{args.version}_{args.dataset}/images"
+    
+    if state.is_main_process:
+        os.makedirs(image_folder, exist_ok=True)
+    
+    state.wait_for_everyone()
 
     num_imgs_per_prompt = args.num_imgs_per_prompt
 
     p_to_idx = {prompt: idx for idx, prompt in enumerate(prompt_list)}
-    seeds = list(range(args.num_seeds))
-
 
     rewards = {}
 
@@ -258,67 +269,56 @@ def main(args):
 
 
     batch = 4
-    def subroutine(prompt, seeds):
+    def subroutine(prompt):
         pidx = p_to_idx[prompt]
         if prompt not in rewards:
             rewards[prompt] = {}
             rewards[prompt]['rewards'] = []
-        for seed in seeds:
-            generator = torch.Generator(device).manual_seed(seed)
-            ### GENERATE IMAGE
-            for idx in range((num_imgs_per_prompt + batch - 1) // batch):
-                offset = idx * batch
-                num_imgs = min(batch, num_imgs_per_prompt - offset)
-                # Continue if all images for the batch already generated.
+        generator = torch.Generator(device).manual_seed(args.seed)
+        ### GENERATE IMAGE
+        for idx in range((num_imgs_per_prompt + batch - 1) // batch):
+            offset = idx * batch
+            num_imgs = min(batch, num_imgs_per_prompt - offset)
+            # Continue if all images for the batch already generated.
 
-                # first check that img_paths are already generated
-                if args.reward_type == "aesthetic" or args.reward_type == "clipscore":
-                    image_folder = f"{args.output_dir}/{args.version}_{args.dataset}/images"
+            # Use the pre-created image_folder (defined globally)
+            img_paths = [f"{image_folder}/{prompt[:20]}_{args.seed}_{iidx + offset}.jpg" for iidx in range(num_imgs)]
+
+            # if images are already generated, then skip
+            if all([os.path.exists(img_path) for img_path in img_paths]) and (args.overwrite == 0 or args.overwrite == 1):
+                img_results = [None] * num_imgs
+
+            else:
+                with torch.no_grad():
+                    img_results = pipe([prompt] * num_imgs, eta=0.0, generator=generator).images
+
+            for iidx, img_result in enumerate(img_results):
+                img_path = f"{image_folder}/{prompt[:20]}_{args.seed}_{iidx + offset}.jpg"
+                # save img result
+                if img_result is not None:
+                    try:
+                        img_result.save(img_path)
+                    except:
+                        img_path = f"{image_folder}/{prompt[:20]}_{args.seed}_{iidx + offset}.jpg"
+                        img_result.save(img_path.replace(":", "_"))
+
+                # if img_result is None, then load the image
+                if img_result is None:
+                    img_result = Image.open(img_path)
+                 
+
+                result = calculate_reward(img_result, prompt)
+                if isinstance(result, tuple):
+                    reward, _ = result
                 else:
-                    image_folder = f"{args.output_dir}/{args.reward_type}/{args.version}_{args.dataset}/images"
-                
-
-                
-                img_paths = [f"{image_folder}/{prompt[:20]}_{seed}_{iidx + offset}.jpg" for iidx in range(num_imgs)]
-
-                # if images are already generated, then skip
-                if all([os.path.exists(img_path) for img_path in img_paths]) and (args.overwrite == 0 or args.overwrite == 1):
-                    img_results = [None] * num_imgs
-
-                else:
-                    with torch.no_grad():
-                        img_results = pipe([prompt] * num_imgs, eta=0.0, generator=generator).images
-
-                for iidx, img_result in enumerate(img_results):
-
-                    if not os.path.exists(f"{image_folder}"):
-                        os.makedirs(f"{image_folder}")
-                    img_path = f"{image_folder}/{prompt[:20]}_{seed}_{iidx + offset}.jpg"
-                    # save img result
-                    if img_result is not None:
-                        try:
-                            img_result.save(img_path)
-                        except:
-                            img_path = f"{image_folder}/{prompt[:20]}_{seed}_{iidx + offset}.jpg"
-                            img_result.save(img_path.replace(":", "_"))
-
-                    # if img_result is None, then load the image
-                    if img_result is None:
-                        img_result = Image.open(img_path)
-                     
-
-                    result = calculate_reward(img_result, prompt)
-                    if isinstance(result, tuple):
-                        reward, _ = result
-                    else:
-                        reward = result
-                    rewards[prompt]['rewards'].append(reward)
+                    reward = result
+                rewards[prompt]['rewards'].append(reward)
     
     
     with state.split_between_processes(prompt_list) as sub_prompts:
         print(f"Process {state.process_index}: Processing {len(sub_prompts)} prompts")
         for prompt in tqdm(sub_prompts, desc=f"Process {state.process_index}"):
-            subroutine(prompt, seeds)
+            subroutine(prompt)
         
         # Calculate statistics for this process's rewards
         for prompt, v in rewards.items():
@@ -393,7 +393,6 @@ if __name__ == "__main__":
     parser.add_argument("--seed", default=1, type=int)
     parser.add_argument("--output-dir", default="outputs", type=str)
     parser.add_argument("--version", default="trained", type=str)
-    parser.add_argument("--num_seeds", default=1, type=int)
     parser.add_argument(
             "--pretrained_model_name_or_path",
             type=str,
