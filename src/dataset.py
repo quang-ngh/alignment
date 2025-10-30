@@ -63,20 +63,22 @@ class BaseDataset(Dataset):
         prompt = item["caption"]
 
         #   Get the prefer label
-        prefer_label = item["refer_id"]
+        prefer_label = float(item["refer_id"]) # in case refer_id is a string
 
         #   Load the images
         image_0 = Image.open(os.path.join(self.image_dir, item["image_0_basename"]))
         image_1 = Image.open(os.path.join(self.image_dir, item["image_1_basename"]))
         image_0_tensor = self.transform(image_0)
         image_1_tensor = self.transform(image_1)
-        win_image = image_0_tensor if prefer_label == 0 else image_1_tensor
-        lose_image = image_1_tensor if prefer_label == 0 else image_0_tensor
+        # win_image = image_0_tensor if prefer_label == 0 else image_1_tensor
+        # lose_image = image_1_tensor if prefer_label == 0 else image_0_tensor
         data_dict = {
             "prompt": prompt,
-            "win_image": win_image,
-            "lose_image": lose_image,
-            "refer_id": prefer_label,
+            # "win_image": win_image,
+            # "lose_image": lose_image,
+            "image_0": image_0_tensor,
+            "image_1": image_1_tensor,
+            "preference": prefer_label,
         }
 
         #   Load latent if available
@@ -85,10 +87,12 @@ class BaseDataset(Dataset):
             image_1_latent = np.load(os.path.join(self.latent_dir, item["image_1_basename"].replace(".jpg", ".npz")))["arr_0"]
             image_0_latent = torch.from_numpy(image_0_latent).squeeze(0)
             image_1_latent = torch.from_numpy(image_1_latent).squeeze(0)
-            win_latent = image_0_latent if prefer_label == 0 else image_1_latent
-            lose_latent = image_1_latent if prefer_label == 0 else image_0_latent
-            data_dict["win_latent"] = win_latent
-            data_dict["lose_latent"] = lose_latent
+            # win_latent = image_0_latent if prefer_label == 0 else image_1_latent
+            # lose_latent = image_1_latent if prefer_label == 0 else image_0_latent
+            # data_dict["win_latent"] = win_latent
+            # data_dict["lose_latent"] = lose_latent
+            data_dict["latent_0"] = image_0_latent
+            data_dict["latent_1"] = image_1_latent
             data_dict["use_latent"] = True
 
         return data_dict
