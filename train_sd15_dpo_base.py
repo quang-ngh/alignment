@@ -641,6 +641,8 @@ def main():
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
         num_training_steps=args.max_train_steps * accelerator.num_processes,
+        step_rules=args.lr_scheduler_rule,
+        # min_lr=args.min_lr,
     )
 
     

@@ -25,7 +25,7 @@ def download_hf_repo(repo_id, local_dir, repo_type="model", token=None, revision
             repo_type=repo_type,
             local_dir_use_symlinks=False,  # Download actual files instead of symlinks
             # ignore_patterns=["raw_labels/*"],
-            allow_patterns=["FiFA-100k/*"],
+            # allow_patterns=["FiFA-100k/*"],
             max_workers=32
         )
         print(f"Successfully downloaded {repo_id} to {local_dir}")
@@ -38,16 +38,16 @@ def download_hf_repo(repo_id, local_dir, repo_type="model", token=None, revision
 def main(args):
     # Configuration - modify these variables as needed
 
-    repo_id = args.repo_id
-    local_dir = args.local_dir
+    # repo_id = args.repo_id
+    # local_dir = args.local_dir
     repo_type = "dataset"  # "model", "dataset", or "space"
     token = None  # Set to your HF token if needed for private repos
     revision = None  # Set to specific branch/tag/commit if needed
     
     # Download the repository
     download_hf_repo(
-        repo_id=repo_id,
-        local_dir=local_dir,
+        repo_id="sayakpaul/pickapic_v2_webdataset",
+        local_dir="/common/users/hn315/datasets/pickapic_v2_webdataset",
         repo_type=repo_type,
     )
 

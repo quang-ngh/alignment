@@ -99,9 +99,9 @@
 
 
 #########
-DPO_FIFA_UNET="checkpoints/khiem_unet"
-OUTPUT_DIR="./output/khiem_unet"
-CUDA_VISIBLE_DEVICES=1 python generate.py \
+DPO_FIFA_UNET="training_runs/sd15_dpo_base_new_data/checkpoint-400/unet"
+OUTPUT_DIR="./output/sd15_dpo_fifa_ckpt400"
+CUDA_VISIBLE_DEVICES=0 python generate.py \
     gen_type="pickapic_test" \
     model_path="checkpoints/sd15" \
     save_dir=$OUTPUT_DIR \

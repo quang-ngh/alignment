@@ -14,5 +14,5 @@ datasets/
 │       ├── good_from_10k.json
 │       └── dub_from_10k.json
 │   └── from_100k/   #   Parse from the set 10K
-│       ├── good_from_10k.json
-│       └── dub_from_10k.json
+│       ├── good.json
+│       └── dub.json
