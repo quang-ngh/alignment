@@ -376,12 +376,6 @@ def parse_args():
         "--min_lr", type=float, default=0.0, help="minimum learning rate"
     )
     parser.add_argument(
-        "--soft_label_mode", action="store_true", help="Use soft label (reward-weighted dpo loss) mode"
-    )
-    parser.add_argument(
-        "--exp_mode", type=str, default='dpo', choices=['labeled-only', 'unlabeled-gt', 'unlabeled-auto', 'unlabeled-dr'], help="Experiment mode"
-    )
-    parser.add_argument(
         "--mu", type=float, default=1.0, help="ratio of unlabeled to labeled samples"
     )
     parser.add_argument(
@@ -389,6 +383,9 @@ def parse_args():
     )
     parser.add_argument(
         "--curriculum", choices=['none', 'linear', 'quadratic'], default='none', help="Curriculum",
+    )
+    parser.add_argument(
+        "--use_updated_policy_for_pseudo_labels", default=False, action="store_true", help="Use updated policy (model) for pseudo labels instead of reference policy",
     )
     
     args = parser.parse_args()
@@ -929,15 +926,19 @@ def main():
                     ref_diff = ref_losses_1 - ref_losses_0
                     raw_ref_loss = ref_losses.mean()
 
-                    if args.hard_pseudo_label:  
-                        pseudo_labeled_prefs = (ref_diff[:labeled_bsz] > 0).float()
-                        pseudo_unlabeled_prefs = (ref_diff[labeled_bsz:] > 0).float()
+                    if args.use_updated_policy_for_pseudo_labels:
+                        pseudo_label_diff = model_diff
                     else:
-                        pseudo_labeled_prefs = torch.sigmoid(ref_diff[:labeled_bsz])
-                        pseudo_unlabeled_prefs = torch.sigmoid(ref_diff[labeled_bsz:])
+                        pseudo_label_diff = ref_diff
 
-                # labeled_model_diff, unlabeled_model_diff = model_diff[:labeled_bsz], model_diff[labeled_bsz:]
-                # labeled_ref_diff, unlabeled_ref_diff = ref_diff[:labeled_bsz], ref_diff[labeled_bsz:]
+                    if args.hard_pseudo_label:  
+                        pseudo_refs = (pseudo_label_diff > 0).float()
+                    else:
+                        pseudo_refs = torch.sigmoid(pseudo_label_diff)
+
+                    pseudo_labeled_prefs, pseudo_unlabeled_prefs = pseudo_refs[:labeled_bsz], pseudo_refs[labeled_bsz:]
+
+                    # TODO: if |0.5 - sigmoid(pseudo_label_diff)| < arg.eta, then set per-sample loss to 0
                     
                 scale_term = -0.5 * args.beta_dpo
                 logits = scale_term * (model_diff - ref_diff)
@@ -999,6 +1000,7 @@ def main():
                 accelerator.log({"ref_mse_unaccumulated": avg_ref_mse}, step=global_step)
                 accelerator.log({"implicit_acc_accumulated": implicit_acc_accumulated}, step=global_step)
                 accelerator.log({"diagnostics/pseudo_unlabeled_acc_accumulated": pseudo_unlabeled_acc_accumulated}, step=global_step)
+                accelerator.log({"lr": lr_scheduler.get_last_lr()[0]}, step=global_step)
                 train_loss = 0.0
                 implicit_acc_accumulated = 0.0
                 pseudo_unlabeled_acc_accumulated = 0.0

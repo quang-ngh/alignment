@@ -1,4 +1,9 @@
+datasets/pickscore_results
+logs
 wandb
+test_outputs
+train_outputs_new_env
+test_outputs_new_env
 training_runs
 *.jpg
 *.jpeg
