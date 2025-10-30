@@ -190,9 +190,7 @@ def benchmarking_hpsv2(base_image_dir="output", prompt_dir="datasets/eval_prompt
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 score = evaluate_hpsv2(image, prompt, hps_version="v2.0")
                 list_scores.append(score)
-        
-   # Save results to CSV
-        
+         
         with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['prompt', 'score'])
@@ -203,11 +201,52 @@ def benchmarking_hpsv2(base_image_dir="output", prompt_dir="datasets/eval_prompt
             writer.writerow(['average', f"{avg_score:.4f}"])
         print(f"Saved scores and average to {csv_path}")
 
+def benchmarking_pickscore(base_image_dir="output", prompt_path="datasets/eval_prompts/pickapic_test_prompts.json", name="ps_base_sd15_pickapic_test"):
+
+    list_prompts = json.load(open(prompt_path, "r"))
+    save_dir = os.path.join("eval_results", name)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+
+    list_scores = []
+    list_test_prompts = []
+    for idx, prompt in tqdm(enumerate(list_prompts), total=len(list_prompts), desc=f"Evaluating {name}"):
+        image_path = os.path.join(base_image_dir, f"image_{idx}.jpg")
+        if not os.path.exists(image_path):
+            print(f"Image {image_path} does not exist")
+            continue
+        image = Image.open(image_path).convert("RGB")
+        try:
+            with torch.amp.autocast("cuda", dtype=torch.float32):
+                score = evaluate_pickscore(image, prompt)
+            list_scores.append(score)
+            list_test_prompts.append(prompt)
+        except Exception as e:
+            print(f"Error evaluating {image_path}: {e}")
+            continue
+
+    csv_path = os.path.join(save_dir, f"scores.csv")
+    with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['prompt', 'score'])
+        for p, s in zip(list_test_prompts, list_scores):
+            writer.writerow([p, f"{s:.4f}"])
+        avg_score = sum(list_scores) / len(list_scores) if list_scores else 0
+        writer.writerow(['average', f"{avg_score:.4f}"])
 
 if __name__ == "__main__":
     from omegaconf import OmegaConf
     args = OmegaConf.from_cli()
-    benchmarking_hpsv2(
-        base_image_dir=args.image_dir,
-        name=args.name,
-    )
+
+    if args.benchmark_type == "hpsv2":
+        benchmarking_hpsv2(
+            base_image_dir=args.image_dir,
+            prompt_dir=args.prompt_dir,
+            name=args.name,
+        )
+    elif args.benchmark_type == "pickscore":
+        benchmarking_pickscore(
+            base_image_dir=args.image_dir,
+            prompt_path=args.prompt_dir,
+            name=args.name,
+        )
