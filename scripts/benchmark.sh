@@ -1,5 +1,18 @@
+CUDA_VISIBLE_DEVICES=0 python evaluator.py \
+    benchmark_type="hpsv2" \
+    image_dir="main_results/hpsv2/sd15_base" \
+    prompt_dir="datasets/eval_prompts" \
+    name="eval_results/main/hpsv2/sd15_base" &
+
 CUDA_VISIBLE_DEVICES=1 python evaluator.py \
-    benchmark_type="pickscore" \
-    image_dir="output/sd15_dpo_fifa_ckpt400" \
-    prompt_dir="datasets/eval_prompts/pickapic_test_prompts.json" \
-    name="pickscore_sd15_dpo_fifa_ckpt400_pickapic_test" \
+    benchmark_type="hpsv2" \
+    image_dir="main_results/hpsv2/unet_dpo_25label" \
+    prompt_dir="datasets/eval_prompts" \
+    name="eval_results/main/hpsv2/unet_dpo_25label" &
+
+CUDA_VISIBLE_DEVICES=2 python evaluator.py \
+    benchmark_type="hpsv2" \
+    image_dir="main_results/hpsv2/unet_dpo_100label" \
+    prompt_dir="datasets/eval_prompts" \
+    name="eval_results/main/hpsv2/unet_dpo_100label" &
+

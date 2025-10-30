@@ -2,9 +2,10 @@ import os
 import json 
 import numpy as np
 import torch
-from diffusers import AutoencoderKL, StableDiffusionPipeline, UNet2DConditionModel
+from diffusers import AutoencoderKL, StableDiffusionPipeline, UNet2DConditionModel, DPMSolverMultistepScheduler
 
-def generate_noise(n_samples=800, size=(4,64,64), seed=999):
+
+def generate_noise(n_samples=500, size=(4,64,64), seed=999):
     torch.manual_seed(seed)
     size = (n_samples, *size)
     random_noise = torch.randn(size, device="cuda", dtype=torch.bfloat16, generator=torch.Generator(device="cuda").manual_seed(seed))
@@ -13,22 +14,25 @@ def generate_noise(n_samples=800, size=(4,64,64), seed=999):
 
 def get_sd_model(model_path, unet_path=None, version="sd15", device="cuda"):
     if unet_path is None:
-        unet = UNet2DConditionModel.from_pretrained(model_path, subfolder="unet", torch_dtype=torch.bfloat16).to(device)
+        unet = UNet2DConditionModel.from_pretrained(model_path, subfolder="unet", torch_dtype=torch.float16).to(device)
     else:
-        unet = UNet2DConditionModel.from_pretrained(unet_path, torch_dtype=torch.bfloat16).to(device)
+        unet = UNet2DConditionModel.from_pretrained(unet_path, torch_dtype=torch.float16).to(device)
+
+    scheduler = DPMSolverMultistepScheduler.from_config(model_path, subfolder="scheduler")
 
     if version == "sd15":        
         pipeline = StableDiffusionPipeline.from_pretrained(
             model_path, 
             unet=unet,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch.float16,
             safety_checker=None,
+            scheduler=scheduler,
         ).to(device)
         return pipeline
 
     if version == "sdxl":
         from diffusers import StableDiffusionXLPipeline
-        pipeline = StableDiffusionXLPipeline.from_pretrained(model_path, unet=unet, torch_dtype=torch.bfloat16, safety_checker=None).to(device)
+        pipeline = StableDiffusionXLPipeline.from_pretrained(model_path, unet=unet, torch_dtype=torch.float16, safety_checker=None).to(device)
         return pipeline
     
 
@@ -37,9 +41,12 @@ def generate_hpsv2(
     noise_path: str = "datasets/hpsv2_noise.pt", 
     json_path: str = "datasets/hpsv2_anime.json", 
     save_dir: str = "./output",
-    inference_steps: int = 50,
-    guidance_scale: float = 4.5,   
+    inference_steps: int = 20,
+    guidance_scale: float = 7.5,   
     batch_size: int = 32,
+    start_idx: int=0,
+    end_idx: int=-1,
+    dtype=torch.float16,
 ):
     basename = json_path.split("/")[-1].split(".")[0]
     save_dir = os.path.join(save_dir, basename)
@@ -55,7 +62,7 @@ def generate_hpsv2(
     pre_sample_latents = torch.load(noise_path, map_location="cpu")
     for i in range(0, len(list_prompts), batch_size):
         batch_prompts = list_prompts[i:i+batch_size]
-        batch_noise = pre_sample_latents[i:i+batch_size].to(pipeline.device, dtype=torch.bfloat16)
+        batch_noise = pre_sample_latents[i:i+batch_size].to(pipeline.device, dtype=dtype)
 
         #   check the existence of path
         gen_kwargs = {
@@ -74,14 +81,15 @@ def generate_pickapic_test(
     noise_path: str = "datasets/pickapic_test_noise.pt",
     save_dir: str = "./output",
     json_path: str = "datasets/eval_prompts/pickapic_test_prompts.json",
-    inference_steps: int = 50,
+    inference_steps: int = 20,
     guidance_scale: float = 4.5,   
     batch_size: int = 32,
     start_idx: int=0,
-    end_idx: int=-1
+    end_idx: int=-1,
+    dtype=torch.float16,
 ):
     pre_sample_latents = torch.load(noise_path, map_location="cpu")
-    pre_sample_latents = pre_sample_latents.to(pipeline.device, dtype=torch.bfloat16)
+    pre_sample_latents = pre_sample_latents.to(pipeline.device, dtype=dtype)
 
     list_prompts = json.load(open(json_path, "r"))
     if end_idx < 0:
@@ -112,7 +120,7 @@ def generate_pickapic_test(
             print(f"Generating batch {i}")
             gen_kwargs = {
                 "prompt": batch_prompts,
-                "latents": batch_latents.to(pipeline.device, dtype=torch.bfloat16),
+                "latents": batch_latents.to(pipeline.device, dtype=dtype),
                 "num_inference_steps": inference_steps,
                 "guidance_scale": guidance_scale,
                 "output_type": "pil",
@@ -152,7 +160,9 @@ def main(args):
                 save_dir=args.save_dir,
                 noise_path=args.noise_path, 
                 json_path=json_path, 
-                batch_size=args.batch_size
+                batch_size=args.batch_size,
+                guidance_scale=args.guidance_scale,
+                inference_steps=args.inference_steps
             )
     elif args.gen_type == "pickapic_test":
         generate_pickapic_test(
@@ -163,21 +173,20 @@ def main(args):
             batch_size=args.batch_size,
             start_idx=args.start_idx,
             end_idx=args.end_idx,
-            guidance_scale=args.guidance_scale
-            # inference_steps=args.inference_steps
+            guidance_scale=args.guidance_scale,
+            inference_steps=args.inference_steps
         )
     elif args.gen_type == "partipromps":
         raise NotImplementedError("Participating prompts generation is not implemented yet")
 
 if __name__ == "__main__":
-    # hpsv_noise = generate_noise(
-    #     n_samples=800, # 800 prompts for each category
-    #     size=(4,128,128), # 64 for sd15, 128 for sdxl, channel=4
+    # noise_sd15 = generate_noise(
+    #     n_samples=1632, # 800 prompts for each category
+    #     size=(4,64,64), # 64 for sd15, 128 for sdxl, channel=4
     #     seed=999,
     # )
-    # torch.save(hpsv_noise.cpu(), "datasets/hpsv2_noise_xl.pt")
+    # torch.save(noise_sd15.detach().cpu(), "datasets/partiprompts_noise_sd15.pt")
 
-    #   Generate
     from omegaconf import OmegaConf
     args = OmegaConf.from_cli()
     main(args)

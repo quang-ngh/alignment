@@ -92,7 +92,8 @@ def evaluate_pickscore(
         text_embs = _pickscore_model.get_text_features(**text_inputs)
         text_embs = text_embs / torch.norm(text_embs, dim=-1, keepdim=True)
 
-        scores = _pickscore_model.logit_scale.exp() * (text_embs @ image_embs.T)
+        # scores = _pickscore_model.logit_scale.exp() * (text_embs @ image_embs.T)
+        scores = (text_embs @ image_embs.T)
 
     return float(scores[0, 0].detach().cpu().item())
 
@@ -189,9 +190,7 @@ def benchmarking_hpsv2(base_image_dir="output", prompt_dir="datasets/eval_prompt
             with torch.amp.autocast("cuda", dtype=torch.float32):
                 score = evaluate_hpsv2(image, prompt, hps_version="v2.0")
                 list_scores.append(score)
-        
-   # Save results to CSV
-        
+         
         with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['prompt', 'score'])
