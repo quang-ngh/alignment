@@ -7,7 +7,7 @@ import functools
 from argparse import ArgumentParser  # pylint: disable=g-importing-member
 import random
 import json
-from diffusers import DDIMScheduler  # pylint: disable=g-importing-member
+from diffusers import DDIMScheduler, DPMSolverMultistepScheduler # pylint: disable=g-importing-member
 from diffusers import StableDiffusionPipeline  # pylint: disable=g-importing-member
 import numpy as np
 import torch
@@ -20,6 +20,10 @@ from accelerate import PartialState
 from diffusers import AutoencoderKL, StableDiffusionPipeline, UNet2DConditionModel, StableDiffusionXLPipeline
 from PIL import Image
 
+# torch._inductor.config.conv_1x1_as_mm = True
+# torch._inductor.config.coordinate_descent_tuning = True
+# torch._inductor.config.epilogue_fusion = False
+# torch._inductor.config.coordinate_descent_check_all_directions = True
 
 
 state = PartialState()
@@ -135,9 +139,23 @@ def main(args):
                     safety_checker=None,
             )
 
+    # pipe.unet.to(memory_format=torch.channels_last)
+    # pipe.vae.to(memory_format=torch.channels_last)
+    # pipe.unet = torch.compile(
+    #     pipe.unet, mode="max-autotune", fullgraph=True
+    # )
+    # pipe.unet.compile_repeated_blocks(fullgraph=True)
+
+    # pipe.vae.decode = torch.compile(
+    #     pipe.vae.decode,
+    #     mode="max-autotune",
+    #     fullgraph=True
+    # )
+    # pipe.vae.decode.compile_repeated_blocks(fullgraph=True)
 
     pipe.set_progress_bar_config(disable=True)
-    pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+    # pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+    pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
 
 
     if "xl" not in args.pretrained_model_name_or_path:
@@ -268,45 +286,62 @@ def main(args):
         print(f"Created output file: {output_file}")
 
 
-    batch = 4
-    def subroutine(prompt):
-        pidx = p_to_idx[prompt]
-        if prompt not in rewards:
-            rewards[prompt] = {}
-            rewards[prompt]['rewards'] = []
+    def subroutine(sub_prompts):
+        # Initialize rewards structure
+        for prompt in sub_prompts:
+            if prompt not in rewards:
+                rewards[prompt] = {}
+                rewards[prompt]['rewards'] = []
+        
         generator = torch.Generator(device).manual_seed(args.seed)
-        ### GENERATE IMAGE
-        for idx in range((num_imgs_per_prompt + batch - 1) // batch):
-            offset = idx * batch
-            num_imgs = min(batch, num_imgs_per_prompt - offset)
-            # Continue if all images for the batch already generated.
-
-            # Use the pre-created image_folder (defined globally)
-            img_paths = [f"{image_folder}/{prompt[:20]}_{args.seed}_{iidx + offset}.jpg" for iidx in range(num_imgs)]
-
-            # if images are already generated, then skip
-            if all([os.path.exists(img_path) for img_path in img_paths]) and (args.overwrite == 0 or args.overwrite == 1):
-                img_results = [None] * num_imgs
-
+        
+        # Create list of all (prompt, image_idx) pairs
+        all_tasks = []
+        for prompt in sub_prompts:
+            for img_idx in range(num_imgs_per_prompt):
+                img_path = f"{image_folder}/{prompt[:20]}_{args.seed}_{img_idx}.jpg"
+                all_tasks.append((prompt, img_idx, img_path))
+        
+        print(f"Process {state.process_index}: Total tasks: {len(all_tasks)}")
+        
+        # Check which images already exist
+        tasks_to_generate = []
+        existing_images = {}
+        
+        for prompt, img_idx, img_path in all_tasks:
+            if os.path.exists(img_path) and (args.overwrite == 0 or args.overwrite == 1):
+                existing_images[(prompt, img_idx)] = img_path
             else:
+                tasks_to_generate.append((prompt, img_idx, img_path))
+        
+        print(f"Process {state.process_index}: Existing images: {len(existing_images)}, Need to generate: {len(tasks_to_generate)}")
+        
+        # Generate all missing images in batches
+        if tasks_to_generate:
+            for batch_start in tqdm(range(0, len(tasks_to_generate), args.batch_size), 
+                                  desc=f"Process {state.process_index} generating images"):
+                batch_end = min(batch_start + args.batch_size, len(tasks_to_generate))
+                batch_tasks = tasks_to_generate[batch_start:batch_end]
+                
+                # Extract prompts for this batch
+                batch_prompts = [task[0] for task in batch_tasks]
+                
                 with torch.no_grad():
-                    img_results = pipe([prompt] * num_imgs, eta=0.0, generator=generator).images
-
-            for iidx, img_result in enumerate(img_results):
-                img_path = f"{image_folder}/{prompt[:20]}_{args.seed}_{iidx + offset}.jpg"
-                # save img result
-                if img_result is not None:
-                    try:
-                        img_result.save(img_path)
-                    except:
-                        img_path = f"{image_folder}/{prompt[:20]}_{args.seed}_{iidx + offset}.jpg"
-                        img_result.save(img_path.replace(":", "_"))
-
-                # if img_result is None, then load the image
-                if img_result is None:
-                    img_result = Image.open(img_path)
-                 
-
+                    img_results = pipe(batch_prompts, eta=0.0, generator=generator, num_inference_steps=args.num_inference_steps).images
+                
+                # Save images
+                for (prompt, img_idx, img_path), img_result in zip(batch_tasks, img_results):
+                    assert img_results is not None, f"Image result is None for prompt: {prompt}, img_idx: {img_idx}, img_path: {img_path}"
+                    img_result.save(img_path)
+                    # Store in existing_images for later processing
+                    existing_images[(prompt, img_idx)] = img_path
+        
+        # Calculate rewards for all images (existing + newly generated)
+        for prompt, img_idx, img_path in tqdm(all_tasks, desc=f"Process {state.process_index} calculating rewards"):
+            if (prompt, img_idx) in existing_images:
+                img_path = existing_images[(prompt, img_idx)]
+                img_result = Image.open(img_path)
+                
                 result = calculate_reward(img_result, prompt)
                 if isinstance(result, tuple):
                     reward, _ = result
@@ -317,8 +352,7 @@ def main(args):
     
     with state.split_between_processes(prompt_list) as sub_prompts:
         print(f"Process {state.process_index}: Processing {len(sub_prompts)} prompts")
-        for prompt in tqdm(sub_prompts, desc=f"Process {state.process_index}"):
-            subroutine(prompt)
+        subroutine(sub_prompts)
         
         # Calculate statistics for this process's rewards
         for prompt, v in rewards.items():
@@ -430,6 +464,12 @@ if __name__ == "__main__":
     parser.add_argument(
                 "--num_imgs_per_prompt", type=int, default=4, help="Initialize start of run from unet (not compatible w/ checkpoint load)"
         )
+    parser.add_argument(
+        "--batch_size", type=int, default=4, help="Batch size for image generation"
+    )
+    parser.add_argument(
+        "--num_inference_steps", type=int, default=20, help="Number of denoising steps"
+    )
     
     parser.add_argument(
         "--overwrite", type=int, default=0, help=
