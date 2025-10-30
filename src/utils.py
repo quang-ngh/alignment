@@ -62,8 +62,24 @@ def read_dataset(data_path, split="train", save_dir="/common/users/hn315/dataset
 
     with open("./datasets/manifest/fifa_new.json", "w") as f:
         json.dump(res, f)
-    f.close()
 
+
+def split_semi_supervised_dataset_by_ratio_and_seed(path_to_manifest_json, save_dir, labeled_ratio=0.5, seed=42):
+    random.seed(seed)
+    with open(path_to_manifest_json, "r") as f:
+        dataset = json.load(f)
+
+    random.shuffle(dataset)
+    labeled_dataset = dataset[:int(len(dataset) * labeled_ratio)]
+    unlabeled_dataset = dataset[int(len(dataset) * labeled_ratio):]
+
+    os.makedirs(save_dir, exist_ok=True)
+    with open(os.path.join(save_dir, "labeled.json"), "w") as f:
+        json.dump(labeled_dataset, f)
+    with open(os.path.join(save_dir, "unlabeled.json"), "w") as f:
+        json.dump(unlabeled_dataset, f)
+
+    return labeled_dataset, unlabeled_dataset
 
 if __name__ == "__main__":
     read_dataset(

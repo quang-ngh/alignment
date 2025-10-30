@@ -1,0 +1,13 @@
+accelerate launch --gpu_ids 2,3 --num_processes=2 \
+    --mixed_precision=fp16 fifa_test.py \
+    --prompts_path datasets/eval_prompts/pickapic_test.json \
+    --model-path "train_outputs_new_env/sd15_5k_steps=1000_faithful/checkpoint-200" \
+    --version "sd15_5k_steps=1000_faithful_checkpoint-200" \
+    --dataset pickscore \
+    --reward_type pickscore \
+    --pretrained_model_name_or_path "stable-diffusion-v1-5/stable-diffusion-v1-5" \
+    --output-dir "test_outputs_new_env" \
+    --num_imgs_per_prompt 4 \
+    --batch_size 32 \
+    --num_inference_steps 20 \
+    --overwrite 0
