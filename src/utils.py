@@ -4,19 +4,22 @@ from PIL import Image
 import concurrent.futures
 from datasets import load_dataset
 import json
+from tqdm import tqdm
 
 def process_example(args):
     idx, example, save_dir = args
-
-    caption = example["caption"]
-    jpg_0 = example["jpg_0"]
-    jpg_1 = example["jpg_1"]
-    label_0 = example["label_0"]
-    label_1 = example["label_1"]
+    # print(example)
+    caption = example["original_prompt.txt"]
+    jpg_0 = example["jpg_0.jpg"]
+    jpg_1 = example["jpg_1.jpg"]
+    label_0 = int(float(example["label_0.txt"]))
+    label_1 = int(float(example["label_1.txt"]))
 
     refer_id = 0 if label_0 > label_1 else 1
-    image_0 = Image.open(io.BytesIO(jpg_0)).convert("RGB")
-    image_1 = Image.open(io.BytesIO(jpg_1)).convert("RGB")
+    # image_0 = Image.open(io.BytesIO(jpg_0)).convert("RGB")
+    # image_1 = Image.open(io.BytesIO(jpg_1)).convert("RGB")
+    image_0 = jpg_0.convert("RGB")
+    image_1 = jpg_1.convert("RGB")
 
     # Fix tied label after refer_id is determined
     if label_0 == label_1:
@@ -24,12 +27,12 @@ def process_example(args):
         label_0 = 0
         label_1 = 1
 
-    image_0_basename = f"{idx:06d}_{int(label_0)}.jpg"
-    image_1_basename = f"{idx:06d}_{int(label_1)}.jpg"
+    image_0_basename = f"{idx:06d}_{label_0}.jpg"
+    image_1_basename = f"{idx:06d}_{label_1}.jpg"
 
     image_0_path = os.path.join(save_dir, image_0_basename)
     image_1_path = os.path.join(save_dir, image_1_basename)
-    print(image_0_path)
+    # print(image_0_path)
     image_0.save(image_0_path)
     image_1.save(image_1_path)
     return {
@@ -54,17 +57,17 @@ def read_dataset(data_path, split="train", save_dir="/common/users/hn315/dataset
     max_workers = min(32, os.cpu_count() or 1)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for out in executor.map(process_example, args_iter, chunksize=32):
+        for out in tqdm(executor.map(process_example, args_iter, chunksize=32)):
             res.append(out)
 
-    with open("./datasets/manifest/fifa_100k.json", "w") as f:
+    with open("./datasets/manifest/fifa_new.json", "w") as f:
         json.dump(res, f)
     f.close()
 
 
 if __name__ == "__main__":
     read_dataset(
-        data_path="path to fifa 100k parquet",
+        data_path="datasets/FiFA-new",
         split="train",
-        save_dir="path to save images",
+        save_dir="datasets/FiFA-new/data/",
     )
