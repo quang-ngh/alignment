@@ -63,7 +63,7 @@ class BaseDataset(Dataset):
         prompt = item["caption"]
 
         #   Get the prefer label
-        prefer_label = item["refer_id"]
+        prefer_label = float(item["refer_id"]) # in case refer_id is a string
 
         #   Load the images
         image_0 = Image.open(os.path.join(self.image_dir, item["image_0_basename"]))

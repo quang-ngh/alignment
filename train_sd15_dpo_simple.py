@@ -28,12 +28,13 @@ from transformers import CLIPTextModel, CLIPTokenizer
 from transformers.utils import ContextManagers
 
 import diffusers
-from diffusers.optimization import get_scheduler
+# from diffusers.optimization import get_scheduler
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel, StableDiffusionXLPipeline
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 import copy
 from src.utils import *
+from utils import *
 
 if is_wandb_available():
     import wandb
@@ -639,11 +640,19 @@ def main():
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
+    # lr_scheduler = get_scheduler(
+    #     args.lr_scheduler,
+    #     optimizer=optimizer,
+    #     num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
+    #     num_training_steps=args.max_train_steps * accelerator.num_processes,
+    # )
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
         num_training_steps=args.max_train_steps * accelerator.num_processes,
+        step_rules=args.lr_scheduler_rule,
+        min_lr=args.min_lr,
     )
 
     
@@ -700,6 +709,9 @@ def main():
     loss_history = []
 
 
+    # Initialize resume_step for linting
+    resume_step = 0
+    
     # Potentially load in the weights and states from a previous save
     if args.resume_from_checkpoint:
         if args.resume_from_checkpoint != "latest":
@@ -755,8 +767,8 @@ def main():
                     latents_1 = batch["latent_1"]
                 else:
                     with torch.no_grad():
-                        latents_0 = vae.encode(images_0.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
-                        latents_1 = vae.encode(images_1.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor    
+                        latents_0 = vae.encode(images_0.to(accelerator.device, dtype=weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
+                        latents_1 = vae.encode(images_1.to(accelerator.device, dtype=weight_dtype)).latent_dist.sample() * vae.config.scaling_factor    
 
                 latents = torch.cat([latents_0, latents_1], dim=0).to(accelerator.device, dtype=weight_dtype)
 
@@ -898,6 +910,7 @@ def main():
                 accelerator.log({"model_mse_unaccumulated": avg_model_mse}, step=global_step)
                 accelerator.log({"ref_mse_unaccumulated": avg_ref_mse}, step=global_step)
                 accelerator.log({"implicit_acc_accumulated": implicit_acc_accumulated}, step=global_step)
+                accelerator.log({"lr": lr_scheduler.get_last_lr()[0]}, step=global_step)
                 train_loss = 0.0
                 implicit_acc_accumulated = 0.0
 
@@ -915,6 +928,10 @@ def main():
                             accelerator.save_state(save_path)
                             logger.info(f"Saved state to {save_path}")
                             logger.info("Pretty sure saving/loading is fixed but proceed cautiously")
+                    # save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                    # accelerator.save_state(save_path)
+                    # logger.info(f"Saved state to {save_path}")
+                    # logger.info("Pretty sure saving/loading is fixed but proceed cautiously")
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             if args.train_method == 'dpo':

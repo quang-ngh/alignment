@@ -586,7 +586,9 @@ def main():
                 model.save_pretrained(os.path.join(output_dir, "unet"))
 
                 # make sure to pop weight so that corresponding model is not saved again
-                weights.pop()
+                # Only pop if weights list is not empty
+                if weights:
+                    weights.pop()
 
         def load_model_hook(models, input_dir):
 
@@ -765,6 +767,11 @@ def main():
         pseudo_unlabeled_acc_accumulated = 0.0
         for step, (labeled_batch, unlabeled_batch) in enumerate(zip(labeled_dataloader, unlabeled_dataloader)):
             # Skip steps until we reach the resumed step 
+            if args.resume_from_checkpoint and epoch == first_epoch and step < resume_step and (not args.hard_skip_resume):
+                if step % args.gradient_accumulation_steps == 0:
+                    print(f"Dummy processing step {step}, will start training at {resume_step}")
+                continue
+
             with accelerator.accumulate(unet):
 
                 # Get data from good dataset
@@ -819,7 +826,7 @@ def main():
                     dim=0
                 ).to(accelerator.device, dtype=weight_dtype)
 
-                noise = torch.randn_like(latents) 
+                noise = torch.randn_like(latents)
                 bsz = latents.shape[0]
                 # Sample a random timestep for each image
                 timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
@@ -990,16 +997,25 @@ def main():
                 accelerator.log({"ref_mse_unaccumulated": avg_ref_mse}, step=global_step)
                 accelerator.log({"implicit_acc_accumulated": implicit_acc_accumulated}, step=global_step)
                 accelerator.log({"diagnostics/pseudo_unlabeled_acc_accumulated": pseudo_unlabeled_acc_accumulated}, step=global_step)
+                accelerator.log({"lr": lr_scheduler.get_last_lr()[0]}, step=global_step)
                 train_loss = 0.0
                 implicit_acc_accumulated = 0.0
                 pseudo_unlabeled_acc_accumulated = 0.0
 
-                if global_step % args.checkpointing_steps == 0:
-                    if accelerator.is_main_process:
+                if global_step % args.checkpointing_steps == 0 or global_step == 1:
+                    # when deepspeed is used, no need for is_main_process check
+                    deepspeed_plugin = AcceleratorState().deepspeed_plugin if accelerate.state.is_initialized() else None
+                    if deepspeed_plugin is not None:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
                         logger.info("Pretty sure saving/loading is fixed but proceed cautiously")
+                    else:
+                        if accelerator.is_main_process:
+                            save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                            accelerator.save_state(save_path)
+                            logger.info(f"Saved state to {save_path}")
+                            logger.info("Pretty sure saving/loading is fixed but proceed cautiously")
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             if args.train_method == 'dpo':
