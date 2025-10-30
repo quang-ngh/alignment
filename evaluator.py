@@ -92,7 +92,8 @@ def evaluate_pickscore(
         text_embs = _pickscore_model.get_text_features(**text_inputs)
         text_embs = text_embs / torch.norm(text_embs, dim=-1, keepdim=True)
 
-        scores = _pickscore_model.logit_scale.exp() * (text_embs @ image_embs.T)
+        # scores = _pickscore_model.logit_scale.exp() * (text_embs @ image_embs.T)
+        scores = (text_embs @ image_embs.T)
 
     return float(scores[0, 0].detach().cpu().item())
 
