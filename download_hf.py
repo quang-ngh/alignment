@@ -46,8 +46,8 @@ def main(args):
     
     # Download the repository
     download_hf_repo(
-        repo_id="sayakpaul/pickapic_v2_webdataset",
-        local_dir="/common/users/hn315/datasets/pickapic_v2_webdataset",
+        repo_id="drproduck/fifa_100k_high_margin_sorted",
+        local_dir="./datasets/FiFA-100k-sorted",
         repo_type=repo_type,
     )
 

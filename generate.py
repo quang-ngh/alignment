@@ -32,10 +32,16 @@ def get_sd_model(model_path, unet_path=None, version="sd15", device="cuda"):
 
     if version == "sdxl":
         from diffusers import StableDiffusionXLPipeline
-        pipeline = StableDiffusionXLPipeline.from_pretrained(model_path, unet=unet, torch_dtype=torch.float16, safety_checker=None).to(device)
+        pipeline = StableDiffusionXLPipeline.from_pretrained(
+            model_path, 
+            unet=unet, 
+            torch_dtype=torch.float16, 
+            safety_checker=None,
+            scheduler=scheduler
+        ).to(device)
         return pipeline
     
-
+@torch.inference_mode()
 def generate_hpsv2(
     pipeline, 
     noise_path: str = "datasets/hpsv2_noise.pt", 
@@ -76,6 +82,7 @@ def generate_hpsv2(
         for j, image in enumerate(batch_images):
             image.save(os.path.join(save_dir, f"image_{i+j}.jpg"))
 
+@torch.inference_mode()
 def generate_pickapic_test(
     pipeline,
     noise_path: str = "datasets/pickapic_test_noise.pt",
@@ -182,10 +189,10 @@ def main(args):
 if __name__ == "__main__":
     # noise_sd15 = generate_noise(
     #     n_samples=1632, # 800 prompts for each category
-    #     size=(4,64,64), # 64 for sd15, 128 for sdxl, channel=4
+    #     size=(4,128,128), # 64 for sd15, 128 for sdxl, channel=4
     #     seed=999,
     # )
-    # torch.save(noise_sd15.detach().cpu(), "datasets/partiprompts_noise_sd15.pt")
+    # torch.save(noise_sd15.detach().cpu(), "datasets/partiprompts_noise_sdxl.pt")
 
     from omegaconf import OmegaConf
     args = OmegaConf.from_cli()

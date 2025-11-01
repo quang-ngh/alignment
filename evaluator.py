@@ -7,7 +7,9 @@ import hpsv2
 import json
 from tqdm import tqdm
 import csv
-
+from fifa.utils.aes_utils import Selector as AESSelector
+from torchvision.transforms import ToTensor
+from torchmetrics.multimodal.clip_score import CLIPScore
 # Types
 ImageLike = Union[str, Image.Image]
 
@@ -126,6 +128,51 @@ def evaluate_imagereward(
     # score can be a float tensor or float
     return float(score) if not isinstance(score, list) else float(score[0])
 
+## ---------- CLIPScore ----------
+_clipscore_model = None
+def _load_clipscore(model_name: str = "openai/clip-vit-base-patch32"):
+    global _clipscore_model
+    if _clipscore_model is not None:
+        return
+    _clipscore_model = CLIPScore(model_name_or_path=model_name).to(_DEVICE)
+
+def evaluate_clipscore(
+    image: ImageLike,
+    prompt: str,
+) -> float:
+    """Return CLIPScore for a single image and prompt."""
+    _load_clipscore()
+    image = image if isinstance(image, Image.Image) else Image.open(image)
+    image = ToTensor()(image).to(_DEVICE).unsqueeze(0).to(_DEVICE)
+    score= _clipscore_model(image, prompt)
+    return score.item()
+
+# ---------- AEScore ----------
+_aeselector_model = None
+def _load_aeselector():
+    global _aeselector_model
+    if _aeselector_model is not None:
+        return
+    _aeselector_model = AESSelector(device=_DEVICE)
+
+
+def evaluate_aescore(
+    image: ImageLike,
+    prompt: str,
+) -> float:
+    """Return AEScore for a single image and prompt."""
+    _load_aeselector()
+
+    assert _aeselector_model is not None
+
+    pil_img = image if isinstance(image, Image.Image) else Image.open(image)
+
+    
+    with torch.no_grad():
+        score = _aeselector_model.score(pil_img, prompt)
+    
+    return float(score[0])
+
 
 def evaluate_all(
     image: ImageLike,
@@ -234,6 +281,72 @@ def benchmarking_pickscore(base_image_dir="output", prompt_path="datasets/eval_p
         avg_score = sum(list_scores) / len(list_scores) if list_scores else 0
         writer.writerow(['average', f"{avg_score:.4f}"])
 
+
+def benchmarking_aescore(base_image_dir="output", prompt_path="datasets/eval_prompts/pickapic_test_prompts.json", name="ae_base_sd15_pickapic_test"):
+
+    list_prompts = json.load(open(prompt_path, "r"))
+    save_dir = os.path.join("eval_results", name)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+
+    list_scores = []
+    list_test_prompts = []
+    for idx, prompt in tqdm(enumerate(list_prompts), total=len(list_prompts), desc=f"Evaluating {name}"):
+        image_path = os.path.join(base_image_dir, f"image_{idx}.jpg")
+        if not os.path.exists(image_path):
+            print(f"Image {image_path} does not exist")
+            continue
+        image = Image.open(image_path).convert("RGB")
+        try:
+            with torch.amp.autocast("cuda", dtype=torch.float32):
+                score = evaluate_aescore(image, prompt)
+            list_scores.append(score)
+            list_test_prompts.append(prompt)
+        except Exception as e:
+            print(f"Error evaluating {image_path}: {e}")
+            continue
+
+    csv_path = os.path.join(save_dir, f"scores.csv")
+    with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['prompt', 'score'])
+        for p, s in zip(list_test_prompts, list_scores):
+            writer.writerow([p, f"{s:.4f}"])
+        avg_score = sum(list_scores) / len(list_scores) if list_scores else 0
+        writer.writerow(['average', f"{avg_score:.4f}"])
+
+def benchmark_clipscore(base_image_dir="output", prompt_path="datasets/eval_prompts/pickapic_test_prompts.json", name="clipscore_base_sd15_pickapic_test"):
+    list_prompts = json.load(open(prompt_path, "r"))
+    save_dir = os.path.join("eval_results", name)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+
+    list_scores = []
+    list_test_prompts = []
+    for idx, prompt in tqdm(enumerate(list_prompts), total=len(list_prompts), desc=f"Evaluating {name}"):
+        image_path = os.path.join(base_image_dir, f"image_{idx}.jpg")
+        if not os.path.exists(image_path):
+            print(f"Image {image_path} does not exist")
+            continue
+        image = Image.open(image_path).convert("RGB")
+        try:
+            with torch.amp.autocast("cuda", dtype=torch.float32):
+                score = evaluate_clipscore(image, prompt)
+            list_scores.append(score)
+            list_test_prompts.append(prompt)
+        except Exception as e:
+            print(f"Error evaluating {image_path}: {e}")
+            continue
+
+    csv_path = os.path.join(save_dir, f"scores.csv")
+    with open(csv_path, "w", newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['prompt', 'score'])
+        for p, s in zip(list_test_prompts, list_scores):
+            writer.writerow([p, f"{s:.4f}"])
+        avg_score = sum(list_scores) / len(list_scores) if list_scores else 0
+        writer.writerow(['average', f"{avg_score:.4f}"])
+
 if __name__ == "__main__":
     from omegaconf import OmegaConf
     args = OmegaConf.from_cli()
@@ -246,6 +359,19 @@ if __name__ == "__main__":
         )
     elif args.benchmark_type == "pickscore":
         benchmarking_pickscore(
+            base_image_dir=args.image_dir,
+            prompt_path=args.prompt_dir,
+            name=args.name,
+        )
+    elif args.benchmark_type == "aescore":
+        benchmarking_aescore(
+            base_image_dir=args.image_dir,
+            prompt_path=args.prompt_dir,
+            name=args.name,
+        )
+
+    elif args.benchmark_type == "clipscore":
+        benchmark_clipscore(
             base_image_dir=args.image_dir,
             prompt_path=args.prompt_dir,
             name=args.name,
