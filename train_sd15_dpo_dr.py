@@ -32,8 +32,81 @@ from diffusers.optimization import get_scheduler
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel, StableDiffusionXLPipeline
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
+from sklearn.metrics import precision_score, recall_score, f1_score
 import copy
 from src.utils import *
+
+
+def safe_precision_score(y_true, y_pred):
+    """
+    Wrapper for precision_score that handles edge cases where metrics would be undefined.
+    Returns 0.0 for edge cases (all predictions 0 or all labels 0).
+    
+    Args:
+        y_true: True labels (numpy array)
+        y_pred: Predicted labels (numpy array)
+    
+    Returns:
+        float: Precision score, or 0.0 for edge cases
+    """
+    num_pos_predictions = y_pred.sum()
+    num_pos_labels = y_true.sum()
+    
+    if num_pos_predictions == 0 or num_pos_labels == 0:
+        return 0.0
+    
+    try:
+        return float(precision_score(y_true, y_pred, zero_division=0))
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def safe_recall_score(y_true, y_pred):
+    """
+    Wrapper for recall_score that handles edge cases where metrics would be undefined.
+    Returns 0.0 for edge cases (all predictions 0 or all labels 0).
+    
+    Args:
+        y_true: True labels (numpy array)
+        y_pred: Predicted labels (numpy array)
+    
+    Returns:
+        float: Recall score, or 0.0 for edge cases
+    """
+    num_pos_predictions = y_pred.sum()
+    num_pos_labels = y_true.sum()
+    
+    if num_pos_predictions == 0 or num_pos_labels == 0:
+        return 0.0
+    
+    try:
+        return float(recall_score(y_true, y_pred, zero_division=0))
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def safe_f1_score(y_true, y_pred):
+    """
+    Wrapper for f1_score that handles edge cases where metrics would be undefined.
+    Returns 0.0 for edge cases (all predictions 0 or all labels 0).
+    
+    Args:
+        y_true: True labels (numpy array)
+        y_pred: Predicted labels (numpy array)
+    
+    Returns:
+        float: F1 score, or 0.0 for edge cases
+    """
+    num_pos_predictions = y_pred.sum()
+    num_pos_labels = y_true.sum()
+    
+    if num_pos_predictions == 0 or num_pos_labels == 0:
+        return 0.0
+    
+    try:
+        return float(f1_score(y_true, y_pred, zero_division=0))
+    except (ValueError, ZeroDivisionError):
+        return 0.0
 
 if is_wandb_available():
     import wandb
@@ -385,7 +458,7 @@ def parse_args():
         "--curriculum", choices=['none', 'linear', 'quadratic'], default='none', help="Curriculum",
     )
     parser.add_argument(
-        "--use_updated_policy_for_pseudo_labels", default=False, action="store_true", help="Use updated policy (model) for pseudo labels instead of reference policy",
+        "--threshold", type=float, default=0.0, help="Threshold for pseudo-label. default 0 leads to no masking."
     )
     
     args = parser.parse_args()
@@ -552,13 +625,6 @@ def main():
     ref_unet.requires_grad_(False)
     unet.requires_grad_(True)
     
-    # Debug: Store initial UNet weights for comparison
-    initial_unet_weights = {}
-    for name, param in unet.named_parameters():
-        if param.requires_grad:
-            initial_unet_weights[name] = param.data.clone()
-    print(f"Stored initial weights for {len(initial_unet_weights)} trainable parameters")
-
 
     # xformers efficient attention
     if is_xformers_available():
@@ -758,9 +824,17 @@ def main():
     #### START MAIN TRAINING LOOP #####
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
-        train_loss = 0.0
-        implicit_acc_accumulated = 0.0
-        pseudo_unlabeled_acc_accumulated = 0.0
+        # Initialize accumulated metrics dictionary - easy to add new metrics here!
+        metrics_accumulated = {
+            "train_loss": 0.0,
+            "model_mse_unaccumulated": 0.0,
+            "ref_mse_unaccumulated": 0.0,
+            "implicit_acc_accumulated": 0.0,
+            "pseudo_unlabeled_acc_accumulated": 0.0,
+            "pseudo_precision": 0.0,
+            "pseudo_recall": 0.0,
+            "pseudo_f1": 0.0,
+        }
         for step, (labeled_batch, unlabeled_batch) in enumerate(zip(labeled_dataloader, unlabeled_dataloader)):
             # Skip steps until we reach the resumed step 
             with accelerator.accumulate(unet):
@@ -893,7 +967,7 @@ def main():
                
                 # Make the prediction from the model we're learning
                 model_batch_args = (noisy_latents,
-                                    timesteps, 
+                                    timesteps,
                                     encoder_hidden_states)
                 added_cond_kwargs = None
                 
@@ -926,27 +1000,35 @@ def main():
                     ref_diff = ref_losses_1 - ref_losses_0
                     raw_ref_loss = ref_losses.mean()
 
-                    if args.use_updated_policy_for_pseudo_labels:
-                        pseudo_label_diff = model_diff
-                    else:
-                        pseudo_label_diff = ref_diff
-
-                    if args.hard_pseudo_label:  
-                        pseudo_refs = (pseudo_label_diff > 0).float()
-                    else:
-                        pseudo_refs = torch.sigmoid(pseudo_label_diff)
-
-                    pseudo_labeled_prefs, pseudo_unlabeled_prefs = pseudo_refs[:labeled_bsz], pseudo_refs[labeled_bsz:]
-
-                    # TODO: if |0.5 - sigmoid(pseudo_label_diff)| < arg.eta, then set per-sample loss to 0
                     
                 scale_term = -0.5 * args.beta_dpo
                 logits = scale_term * (model_diff - ref_diff)
                 labeled_logits, unlabeled_logits = logits[:labeled_bsz], logits[labeled_bsz:]
 
+                soft_pseudo_prefs = torch.sigmoid(logits)
+                hard_pseudo_prefs = (soft_pseudo_prefs > 0.5).float()
+                labeled_pseudo_prefs, unlabeled_pseudo_prefs = hard_pseudo_prefs[:labeled_bsz], hard_pseudo_prefs[labeled_bsz:]
+
+                masks = ((soft_pseudo_prefs - 0.5).abs() > args.threshold).float()
+                labeled_masks = masks[:labeled_bsz]
+                unlabeled_masks = masks[labeled_bsz:]
+
                 implicit_preds = (logits > 0).float()
                 implicit_acc = (implicit_preds == prefs).sum().float() / implicit_preds.size(0)
-                pseudo_unlabeled_acc = (torch.round(pseudo_unlabeled_prefs) == unlabeled_prefs).sum().float() / pseudo_unlabeled_prefs.size(0)
+
+                # NOTE: log metrics for pseudo labels
+                # Think of mask as a output of abinary classifier: those mask=1 are considered correct.
+                #   The targets are whether pseudo labels are correct (i.e. pseudo_unlabeled_prefs == unlabeled_prefs).
+                # precision, recall, f1. acc in usual sense.
+                pseudo_unlabeled_acc = (unlabeled_pseudo_prefs == unlabeled_prefs).float().mean()
+                
+                # Compute precision, recall, f1 with edge case handling
+                # y_true = unlabeled_pseudo_prefs, y_pred = unlabeled_masks
+                unlabeled_pseudo_prefs_np = unlabeled_pseudo_prefs.cpu().numpy()
+                unlabeled_masks_np = unlabeled_masks.cpu().numpy()
+                pseudo_precision = torch.tensor(safe_precision_score(unlabeled_pseudo_prefs_np, unlabeled_masks_np), device=accelerator.device)
+                pseudo_recall = torch.tensor(safe_recall_score(unlabeled_pseudo_prefs_np, unlabeled_masks_np), device=accelerator.device)
+                pseudo_f1 = torch.tensor(safe_f1_score(unlabeled_pseudo_prefs_np, unlabeled_masks_np), device=accelerator.device)
 
                 from torch.nn.functional import binary_cross_entropy_with_logits
 
@@ -957,27 +1039,55 @@ def main():
                 else:
                     curriculum_weight = 1.0
 
-                pseudo_labeled_loss = binary_cross_entropy_with_logits(labeled_logits, pseudo_labeled_prefs, reduction='sum')
-                pseudo_unlabeled_loss = binary_cross_entropy_with_logits(unlabeled_logits, pseudo_unlabeled_prefs, reduction='sum')
+                pseudo_labeled_loss = (
+                    binary_cross_entropy_with_logits(
+                        labeled_logits,
+                        labeled_pseudo_prefs,
+                        reduction='none'
+                    ) * labeled_masks.float()
+                ).mean()
+                pseudo_unlabeled_loss = (
+                    binary_cross_entropy_with_logits(
+                        unlabeled_logits,
+                        unlabeled_pseudo_prefs,
+                        reduction='none'
+                    ) * unlabeled_masks.float()
+                ).mean()
                 labeled_loss = binary_cross_entropy_with_logits(labeled_logits, labeled_prefs, reduction='sum')
                 loss = (pseudo_labeled_loss + pseudo_unlabeled_loss) / bsz + curriculum_weight * (labeled_loss - pseudo_labeled_loss) / labeled_bsz
                 #### END LOSS COMPUTATION ###
                     
-                # Gather the losses across all processes for logging 
-                avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-                train_loss += avg_loss.item() / args.gradient_accumulation_steps
+                # Gather metrics across all processes (these are already averaged over batch)
+                # Note: loss is already a scalar, no need to repeat
+                avg_loss = accelerator.gather(loss.detach()).mean().item()
+                avg_model_mse = accelerator.gather(raw_model_loss.detach()).mean().item()
+                avg_ref_mse = accelerator.gather(raw_ref_loss.detach()).mean().item()
+                avg_acc = accelerator.gather(implicit_acc.detach()).mean().item()
+                avg_pseudo_unlabeled_acc = accelerator.gather(pseudo_unlabeled_acc.detach()).mean().item()
+                
+                avg_pseudo_precision = accelerator.gather(pseudo_precision).mean().item()
+                avg_pseudo_recall = accelerator.gather(pseudo_recall).mean().item()
+                avg_pseudo_f1 = accelerator.gather(pseudo_f1).mean().item()
+                
+                # Accumulate metrics across gradient accumulation steps
+                # Add new metrics here by adding to the dictionary below
+                current_metrics = {
+                    "train_loss": avg_loss,
+                    "model_mse_unaccumulated": avg_model_mse,
+                    "ref_mse_unaccumulated": avg_ref_mse,
+                    "implicit_acc_accumulated": avg_acc,
+                    "pseudo_unlabeled_acc_accumulated": avg_pseudo_unlabeled_acc,
+                    "pseudo_precision": avg_pseudo_precision,
+                    "pseudo_recall": avg_pseudo_recall,
+                    "pseudo_f1": avg_pseudo_f1,
+                }
+                
+                # Accumulate all metrics
+                for key in metrics_accumulated:
+                    metrics_accumulated[key] += current_metrics[key] / args.gradient_accumulation_steps
                 
                 # Debug: Track loss progression
-                loss_history.append(avg_loss.item())
-                # Also gather:
-                # - model MSE vs reference MSE (useful to observe divergent behavior)
-                # - Implicit accuracy
-                avg_model_mse = accelerator.gather(raw_model_loss.repeat(args.train_batch_size)).mean().item()
-                avg_ref_mse = accelerator.gather(raw_ref_loss.repeat(args.train_batch_size)).mean().item()
-                avg_acc = accelerator.gather(implicit_acc).mean().item()
-                avg_pseudo_unlabeled_acc = accelerator.gather(pseudo_unlabeled_acc).mean().item()
-                implicit_acc_accumulated += avg_acc / args.gradient_accumulation_steps
-                pseudo_unlabeled_acc_accumulated += avg_pseudo_unlabeled_acc / args.gradient_accumulation_steps
+                loss_history.append(avg_loss)
 
                 # Backpropagate
                 accelerator.backward(loss)
@@ -995,16 +1105,23 @@ def main():
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 global_step += 1
-                accelerator.log({"train_loss": train_loss}, step=global_step)
-                accelerator.log({"model_mse_unaccumulated": avg_model_mse}, step=global_step)
-                accelerator.log({"ref_mse_unaccumulated": avg_ref_mse}, step=global_step)
-                accelerator.log({"implicit_acc_accumulated": implicit_acc_accumulated}, step=global_step)
-                accelerator.log({"diagnostics/pseudo_unlabeled_acc_accumulated": pseudo_unlabeled_acc_accumulated}, step=global_step)
-                accelerator.log({"lr": lr_scheduler.get_last_lr()[0]}, step=global_step)
-                train_loss = 0.0
-                implicit_acc_accumulated = 0.0
-                pseudo_unlabeled_acc_accumulated = 0.0
-
+                
+                # Log accumulated metrics (averaged across gradient accumulation steps)
+                # Define which metrics go under "diagnostics/" prefix (for wandb/tensorboard grouping)
+                diagnostic_metrics = {"pseudo_unlabeled_acc_accumulated", "pseudo_precision", "pseudo_recall", "pseudo_f1"}
+                
+                # Build log dict with appropriate prefixes
+                log_dict = {}
+                for key in metrics_accumulated:
+                    log_key = f"diagnostics/{key}" if key in diagnostic_metrics else key
+                    log_dict[log_key] = metrics_accumulated[key]
+                log_dict["lr"] = lr_scheduler.get_last_lr()[0]
+                
+                accelerator.log(log_dict, step=global_step)
+                
+                # Reset accumulated metrics for next optimizer step
+                metrics_accumulated = {key: 0.0 for key in metrics_accumulated}
+                
                 if global_step % args.checkpointing_steps == 0:
                     if accelerator.is_main_process:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
@@ -1012,7 +1129,8 @@ def main():
                         logger.info(f"Saved state to {save_path}")
                         logger.info("Pretty sure saving/loading is fixed but proceed cautiously")
 
-            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            # Update progress bar with current step metrics (not accumulated)
+            logs = {"step_loss": avg_loss, "lr": lr_scheduler.get_last_lr()[0]}
             if args.train_method == 'dpo':
                 logs["implicit_acc"] = avg_acc
             progress_bar.set_postfix(**logs)
