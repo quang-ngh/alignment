@@ -537,13 +537,6 @@ def main():
     text_encoder.requires_grad_(False)
     ref_unet.requires_grad_(False)
     unet.requires_grad_(True)
-    
-    # Debug: Store initial UNet weights for comparison
-    initial_unet_weights = {}
-    for name, param in unet.named_parameters():
-        if param.requires_grad:
-            initial_unet_weights[name] = param.data.clone()
-    print(f"Stored initial weights for {len(initial_unet_weights)} trainable parameters")
 
 
     # xformers efficient attention
