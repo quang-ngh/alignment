@@ -15,7 +15,7 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.state import AcceleratorState
-from accelerate.utils import ProjectConfiguration, set_seed
+from accelerate.utils import ProjectConfiguration, set_seed, DistributedType
 from packaging import version
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextModelWithProjection
@@ -27,6 +27,9 @@ from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 import copy
 from src.utils import *
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 
 if is_wandb_available():
     import wandb
@@ -572,7 +575,8 @@ def main():
                 model.save_pretrained(os.path.join(output_dir, "unet"))
 
                 # make sure to pop weight so that corresponding model is not saved again
-                weights.pop()
+                if weights:
+                    weights.pop()
 
         def load_model_hook(models, input_dir):
 
@@ -951,7 +955,7 @@ def main():
                 implicit_acc_accumulated = 0.0
 
                 if global_step % args.checkpointing_steps == 0:
-                    if accelerator.is_main_process:
+                    if accelerator.is_main_process or accelerator.distributed_type == DistributedType.DEEPSPEED:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
@@ -971,7 +975,7 @@ def main():
     # Create the pipeline using the trained modules and save it.
     # This will save to top level of output_dir instead of a checkpoint directory
     accelerator.wait_for_everyone()
-    if accelerator.is_main_process:
+    if accelerator.is_main_process or accelerator.distributed_type == DistributedType.DEEPSPEED:
         unet = accelerator.unwrap_model(unet)
         pipeline = StableDiffusionXLPipeline.from_pretrained(
             args.pretrained_model_name_or_path,
