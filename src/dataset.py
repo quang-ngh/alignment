@@ -10,7 +10,7 @@ import random
 from diffusers import AutoencoderKL
 
 class BaseDataset(Dataset):
-    def __init__(self, manifest, image_dir, resolution=(512,512), latent_dir=None, transform=None, prompt_dir=None):
+    def __init__(self, manifest, image_dir, resolution=(512,512), latent_dir=None, transform=None):
         self.manifest = manifest
         self.image_dir = image_dir
         self.latent_dir = latent_dir
@@ -26,7 +26,6 @@ class BaseDataset(Dataset):
             )
         self.resolution = resolution
         self.data_list = []
-        self.prompt_dir = prompt_dir
         self.init()
 
     def init(self):
@@ -42,7 +41,7 @@ class BaseDataset(Dataset):
 
         #   Run the sanity check    
         for item in tqdm(annotations, desc="Running sanity check"):
-            image_paths = [os.path.join(self.image_dir, item["image_0_basename"]), os.path.join(self.image_dir, item["image_1_basename"]), os.path.join(self.prompt_dir, item["image_0_basename"].replace(".jpg", ".pt"))]
+            image_paths = [os.path.join(self.image_dir, item["image_0_basename"]), os.path.join(self.image_dir, item["image_1_basename"])]
             if not all(os.path.exists(path) for path in image_paths):
                 raise ValueError(f"Image file not found: {image_paths}")
             else:
@@ -71,17 +70,15 @@ class BaseDataset(Dataset):
         image_1 = Image.open(os.path.join(self.image_dir, item["image_1_basename"]))
         image_0_tensor = self.transform(image_0)
         image_1_tensor = self.transform(image_1)
-        win_image = image_0_tensor if prefer_label == 0 else image_1_tensor
-        lose_image = image_1_tensor if prefer_label == 0 else image_0_tensor
-
+        # win_image = image_0_tensor if prefer_label == 0 else image_1_tensor
+        # lose_image = image_1_tensor if prefer_label == 0 else image_0_tensor
         data_dict = {
             "prompt": prompt,
-            "win_image": win_image,
-            "lose_image": lose_image,
-            "refer_id": prefer_label
-            # "image_0": image_0_tensor,
-            # "image_1": image_1_tensor,
-            # "preference": prefer_label,
+            # "win_image": win_image,
+            # "lose_image": lose_image,
+            "image_0": image_0_tensor,
+            "image_1": image_1_tensor,
+            "preference": prefer_label,
         }
 
         #   Load latent if available
@@ -90,20 +87,14 @@ class BaseDataset(Dataset):
             image_1_latent = np.load(os.path.join(self.latent_dir, item["image_1_basename"].replace(".jpg", ".npz")))["arr_0"]
             image_0_latent = torch.from_numpy(image_0_latent).squeeze(0)
             image_1_latent = torch.from_numpy(image_1_latent).squeeze(0)
-            win_latent = image_0_latent if prefer_label == 0 else image_1_latent
-            lose_latent = image_1_latent if prefer_label == 0 else image_0_latent
-            data_dict["win_latent"] = win_latent
-            data_dict["lose_latent"] = lose_latent
-            # data_dict["latent_0"] = image_0_latent
-            # data_dict["latent_1"] = image_1_latent
+            # win_latent = image_0_latent if prefer_label == 0 else image_1_latent
+            # lose_latent = image_1_latent if prefer_label == 0 else image_0_latent
+            # data_dict["win_latent"] = win_latent
+            # data_dict["lose_latent"] = lose_latent
+            data_dict["latent_0"] = image_0_latent
+            data_dict["latent_1"] = image_1_latent
             data_dict["use_latent"] = True
 
-        if self.prompt_dir is not None:
-            prompt_path = os.path.join(self.prompt_dir, f"{item['image_0_basename'].split('.')[0]}.pt")
-            prompt_embeds, pooled_prompt_embeds = torch.load(prompt_path, map_location="cpu")
-            data_dict["prompt_embeds"] = prompt_embeds.squeeze(0)
-            data_dict["pooled_prompt_embeds"] = pooled_prompt_embeds.squeeze(0)
-        
         return data_dict
 
 class DubiousDataset(BaseDataset):
