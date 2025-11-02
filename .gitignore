@@ -1,3 +1,5 @@
+datasets/fifa_scores.json
+datasets/fifa_sorted_indices.json
 notebooks
 datasets/deprecated
 train_outputs_dr_v1
