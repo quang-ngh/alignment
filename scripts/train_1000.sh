@@ -144,7 +144,7 @@ case "$COMMAND" in
         
         echo "Running: train 25/75 split 5k datapoints with DR, soft pseudo labels and quadratic curriculum weight (DRST)"
         accelerate launch --gpu_ids $GPU_IDS --num_processes=$NUM_PROCESSES train_sd15_dpo_dr.py \
-            --mixed_precision "bf16" \
+            --mixed_precision "fp16" \
             --pretrained_model_name_or_path "stable-diffusion-v1-5/stable-diffusion-v1-5" \
             --output_dir "$TRAIN_OUTPUT" \
             --labeled_manifest "datasets/manifest/25_75/labeled.json" \

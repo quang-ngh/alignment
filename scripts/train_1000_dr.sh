@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Usage: ./train_100_dr.sh [gpu_ids] [curriculum] [threshold]
-# Trains with DR
+# Usage: ./train_1000_dr.sh [gpu_ids] [curriculum] [threshold]
+# Trains with DR 1000 steps
 # 
 # Arguments:
 #   gpu_ids: Comma-separated GPU IDs (default: "0,1")
@@ -26,10 +26,10 @@ echo "Using random port: $RANDOM_PORT"
 # Build output directory name based on arguments
 TRAIN_OUTPUT_BASE_DIR="train_outputs_dr_v1"
 TEST_OUTPUT_BASE_DIR="test_outputs_dr_v1"
-EXP_NAME="sd15_25_75_steps=100_dr_curriculum=${CURRICULUM}_threshold=${THRESHOLD}"
+EXP_NAME="sd15_25_75_steps=1000_dr_curriculum=${CURRICULUM}_threshold=${THRESHOLD}"
 TRAIN_OUTPUT_DIR="${TRAIN_OUTPUT_BASE_DIR}/${EXP_NAME}"
 
-echo "Running: train 25/75 split 5k datapoints with DR, $CURRICULUM curriculum weight, threshold=$THRESHOLD (DRST)"
+echo "Running: train 25/75 split 5k datapoints with DR 1000 steps, $CURRICULUM curriculum weight, threshold=$THRESHOLD (DRST)"
 
 accelerate launch --gpu_ids "$GPU_IDS" --num_processes=$NUM_PROCESSES --main_process_port=$RANDOM_PORT train_sd15_dpo_dr.py \
     --mixed_precision "fp16" \
@@ -40,28 +40,33 @@ accelerate launch --gpu_ids "$GPU_IDS" --num_processes=$NUM_PROCESSES --main_pro
     --train_data_dir "datasets/pickapic_v2/" \
     --train_batch_size 2 \
     --gradient_accumulation_steps 8 \
-    --max_train_steps 100 \
+    --max_train_steps 1000 \
     --lr_warmup_steps 10 \
     --learning_rate 1e-7 \
     --scale_lr \
-    --checkpointing_steps 10000 \
+    --checkpointing_steps 100 \
     --beta_dpo 5000 \
     --report_to "wandb" \
     --dataloader_num_workers 4 \
     --mu 3 \
     --curriculum "$CURRICULUM" \
-    --threshold "$THRESHOLD"
+    --threshold "$THRESHOLD" \
+    --lr_scheduler "piecewise_constant" \
+    --lr_scheduler_rule "1:200,0.25:400,0.1"
 
-echo "Running: test 25/75 split 5k datapoints with DR, $CURRICULUM curriculum weight, threshold=$THRESHOLD (DRST)"
-accelerate launch --gpu_ids "$GPU_IDS" --num_processes=$NUM_PROCESSES --main_process_port=$RANDOM_PORT fifa_test.py \
-    --prompts_path "datasets/eval_prompts/pickapic_test.json" \
-    --model-path "$TRAIN_OUTPUT_DIR" \
-    --version "$EXP_NAME" \
-    --dataset pickscore \
-    --reward_type pickscore \
-    --pretrained_model_name_or_path "stable-diffusion-v1-5/stable-diffusion-v1-5" \
-    --output-dir "$TEST_OUTPUT_BASE_DIR" \
-    --num_imgs_per_prompt 4 \
-    --batch_size 32 \
-    --num_inference_steps 20 \
-    --overwrite 0
+# for CHECKPOINT in $(ls -d $TRAIN_OUTPUT_DIR/checkpoint-*); do
+#     CHECKPOINT_DIR="${TRAIN_OUTPUT_DIR}/checkpoint-${CHECKPOINT}"
+#     CHECKPOINT_EXP_NAME="${EXP_NAME}_ckpt-${CHECKPOINT}"
+#     echo "Running: test 25/75 split 5k datapoints with DR 1000 steps, $CURRICULUM curriculum weight, threshold=$THRESHOLD (DRST) on $CHECKPOINT"
+#     accelerate launch --gpu_ids "$GPU_IDS" --num_processes=$NUM_PROCESSES --main_process_port=$RANDOM_PORT fifa_test.py \
+#         --prompts_path "datasets/eval_prompts/qas_parti_test.json" \
+#         --model-path "$TRAIN_OUTPUT_DIR" \
+#         --version "$EXP_NAME" \
+#         --dataset partiprompts \
+#         --reward_type pickscore \
+#         --pretrained_model_name_or_path "stable-diffusion-v1-5/stable-diffusion-v1-5" \
+#         --output-dir "$TEST_OUTPUT_BASE_DIR" \
+#         --num_imgs_per_prompt 1 \
+#         --batch_size 32 \
+#         --num_inference_steps 20 \
+#         --overwrite 0
