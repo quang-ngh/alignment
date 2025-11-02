@@ -241,12 +241,18 @@ def main(args):
     # Wait for main process to create directory
     state.wait_for_everyone()
 
-    # Create image directory upfront (all prompts will use the same directory)
-    if args.reward_type == "aesthetic" or args.reward_type == "clipscore":
-        image_folder = f"{args.output_dir}/{args.version}_{args.dataset}/images"
-    else:
-        image_folder = f"{args.output_dir}/{args.reward_type}/{args.version}_{args.dataset}/images"
+    # if already exist, remove the file
+    if args.model_path is None:
+        args.version = "pretrain_sd15"
+        if 'xl' in args.pretrained_model_name_or_path:
+            args.version = "pretrain_sdxl"
+
+    # Set up simplified directory structure
+    output_dir = os.path.join(args.output_dir, args.version, args.dataset)
+    image_folder = os.path.join(output_dir, "images")
+    output_file = os.path.join(output_dir, f"{args.reward_type}.json")
     
+    # Create image directory upfront (all prompts will use the same directory)
     if state.is_main_process:
         os.makedirs(image_folder, exist_ok=True)
     
@@ -258,7 +264,6 @@ def main(args):
 
     rewards = {}
 
-    # if already exist, remove the file
     if args.model_path is None:
         args.version = "pretrain_sd15"
         if 'xl' in args.pretrained_model_name_or_path:
@@ -267,7 +272,6 @@ def main(args):
     # Check if we should skip processing
     if args.overwrite == 0:
         # first check the existence of the file
-        output_file = f"{args.output_dir}/{args.version}_{args.dataset}.json"
         if os.path.exists(output_file):
             try:
                 with open(output_file, "r") as f:
@@ -280,7 +284,6 @@ def main(args):
     
     # Create empty file to mark start of processing (only on main process)
     if state.is_main_process:
-        output_file = f"{args.output_dir}/{args.version}_{args.dataset}.json"
         with open(output_file, "w") as f:
             json.dump({}, f)
         print(f"Created output file: {output_file}")
@@ -298,8 +301,9 @@ def main(args):
         # Create list of all (prompt, image_idx) pairs
         all_tasks = []
         for prompt in sub_prompts:
+            prompt_idx = p_to_idx[prompt]  # Get original prompt index
             for img_idx in range(num_imgs_per_prompt):
-                img_path = f"{image_folder}/{prompt[:20]}_{args.seed}_{img_idx}.jpg"
+                img_path = f"{image_folder}/{prompt_idx}_{prompt[:50]}_{args.seed}_{img_idx}.jpg"
                 all_tasks.append((prompt, img_idx, img_path))
         
         print(f"Process {state.process_index}: Total tasks: {len(all_tasks)}")
@@ -363,13 +367,12 @@ def main(args):
         
         print(f"Process {state.process_index}: Completed {len(rewards)} prompts")
 
-    # Gather rewards from all processes and save on main process
+    # Gather rewards from all processes and prepare final_rewards
+    # output_file and output_dir already defined above
+    
     if state.num_processes > 1:
-        # Use a different approach - save each process's results to separate files
-        # then merge them on the main process
-        
-        # Each process saves its own results
-        process_output_file = f"{args.output_dir}/{args.version}_{args.dataset}_process_{state.process_index}.json"
+        # Multi-process: save each process's results to separate files, then merge
+        process_output_file = os.path.join(output_dir, f"scores_process_{state.process_index}.json")
         with open(process_output_file, "w") as f:
             json.dump(rewards, f, indent=4)
         print(f"Process {state.process_index}: Saved {len(rewards)} prompts to {process_output_file}")
@@ -377,41 +380,52 @@ def main(args):
         # Wait for all processes to finish saving
         state.wait_for_everyone()
         
-        # Only the main process merges all files
-        if state.is_main_process:
-            final_rewards = {}
-            
-            # Load existing data if file exists
-            if os.path.exists(f"{args.output_dir}/{args.version}_{args.dataset}.json"):
-                with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "r") as f:
-                    existing_data = json.load(f)
-                final_rewards.update(existing_data)
-            
-            # Merge all process files
-            for process_idx in range(state.num_processes):
-                process_file = f"{args.output_dir}/{args.version}_{args.dataset}_process_{process_idx}.json"
-                if os.path.exists(process_file):
-                    with open(process_file, "r") as f:
-                        process_data = json.load(f)
-                    final_rewards.update(process_data)
-                    print(f"Merged {len(process_data)} prompts from process {process_idx}")
-                    # Clean up the temporary file
-                    os.remove(process_file)
-            
-            # Save the final merged data
-            with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "w") as f:
-                json.dump(final_rewards, f, indent=4)
-            print(f"Saved final results with {len(final_rewards)} prompts to {args.output_dir}/{args.version}_{args.dataset}.json")
-    else:
-        # Single process - just save directly
-        if os.path.exists(f"{args.output_dir}/{args.version}_{args.dataset}.json"):
-            with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "r") as f:
-                existing_data = json.load(f)
-            rewards.update(existing_data)
+        # Only the main process merges all files and saves final results
+        if not state.is_main_process:
+            return
         
-        with open(f"{args.output_dir}/{args.version}_{args.dataset}.json", "w") as f:
-            json.dump(rewards, f, indent=4)
-        print(f"Saved results to {args.output_dir}/{args.version}_{args.dataset}.json")
+        final_rewards = {}
+        
+        # Load existing data if file exists
+        if os.path.exists(output_file):
+            with open(output_file, "r") as f:
+                existing_data = json.load(f)
+            final_rewards.update(existing_data)
+        
+        # Merge all process files
+        for process_idx in range(state.num_processes):
+            process_file = os.path.join(output_dir, f"scores_process_{process_idx}.json")
+            if os.path.exists(process_file):
+                with open(process_file, "r") as f:
+                    process_data = json.load(f)
+                final_rewards.update(process_data)
+                print(f"Merged {len(process_data)} prompts from process {process_idx}")
+                os.remove(process_file)
+    else:
+        # Single process: load existing data if exists
+        final_rewards = rewards
+        if os.path.exists(output_file):
+            with open(output_file, "r") as f:
+                existing_data = json.load(f)
+            final_rewards.update(existing_data)
+    
+    # Shared code: Calculate overall mean and save final results
+    prompt_means = []
+    for prompt, data in final_rewards.items():
+        if isinstance(data, dict) and 'mean' in data:
+            prompt_means.append(data['mean'])
+    
+    overall_mean = None
+    if prompt_means:
+        overall_mean = sum(prompt_means) / len(prompt_means)
+        print(f"Overall mean reward across all {len(prompt_means)} prompts: {overall_mean:.6f}")
+        final_rewards['overall_mean'] = overall_mean
+    
+    # Save the final results
+    with open(output_file, "w") as f:
+        json.dump(final_rewards, f, indent=4)
+    num_prompts = len([k for k in final_rewards.keys() if k != 'overall_mean'])
+    print(f"Saved final results with {num_prompts} prompts to {output_file}")
 
 
     del pipe
