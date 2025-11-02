@@ -28,13 +28,14 @@ from transformers import CLIPTextModel, CLIPTokenizer
 from transformers.utils import ContextManagers
 
 import diffusers
-from diffusers.optimization import get_scheduler
+# from diffusers.optimization import get_scheduler
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel, StableDiffusionXLPipeline
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 from sklearn.metrics import precision_score, recall_score, f1_score
 import copy
 from src.utils import *
+from utils import get_scheduler
 
 
 def safe_precision_score(y_true, y_pred):
@@ -460,6 +461,9 @@ def parse_args():
     parser.add_argument(
         "--threshold", type=float, default=0.0, help="Threshold for pseudo-label. default 0 leads to no masking."
     )
+    parser.add_argument(
+        "--no-dr", action="store_true", help="No DR"
+    )
     
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -710,12 +714,14 @@ def main():
     labeled_dataloader = torch.utils.data.DataLoader(
         labeled_dataset,
         shuffle=True,
+        drop_last=True,
         batch_size=labeled_train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
     unlabeled_dataloader = torch.utils.data.DataLoader(
         unlabeled_dataset,
         shuffle=True,
+        drop_last=True,
         batch_size=unlabeled_train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
@@ -728,11 +734,19 @@ def main():
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
+    # lr_scheduler = get_scheduler(
+    #     args.lr_scheduler,
+    #     optimizer=optimizer,
+    #     num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
+    #     num_training_steps=args.max_train_steps * accelerator.num_processes,
+    # )
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
         num_training_steps=args.max_train_steps * accelerator.num_processes,
+        step_rules=args.lr_scheduler_rule,
+        min_lr=args.min_lr,
     )
 
     
@@ -756,6 +770,7 @@ def main():
     vae.to(accelerator.device, dtype=weight_dtype)
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     ref_unet.to(accelerator.device, dtype=weight_dtype)
+    
     ### END ACCELERATOR PREP ###
     
     
@@ -786,10 +801,6 @@ def main():
     global_step = 0
     first_epoch = 0
     
-    # Debug: Track loss progression
-    loss_history = []
-
-
     # Potentially load in the weights and states from a previous save
     if args.resume_from_checkpoint:
         if args.resume_from_checkpoint != "latest":
@@ -831,6 +842,7 @@ def main():
             "ref_mse_unaccumulated": 0.0,
             "implicit_acc_accumulated": 0.0,
             "pseudo_unlabeled_acc_accumulated": 0.0,
+            "masked_pseudo_unlabeled_acc_accumulated": 0.0,
             "pseudo_precision": 0.0,
             "pseudo_recall": 0.0,
             "pseudo_f1": 0.0,
@@ -1021,6 +1033,12 @@ def main():
                 #   The targets are whether pseudo labels are correct (i.e. pseudo_unlabeled_prefs == unlabeled_prefs).
                 # precision, recall, f1. acc in usual sense.
                 pseudo_unlabeled_acc = (unlabeled_pseudo_prefs == unlabeled_prefs).float().mean()
+                # Compute masked accuracy only for items where mask = 1
+                masked_correct = (unlabeled_pseudo_prefs == unlabeled_prefs)[unlabeled_masks.bool()]
+                if masked_correct.numel() > 0:
+                    masked_pseudo_unlabeled_acc = masked_correct.float().mean()
+                else:
+                    masked_pseudo_unlabeled_acc = torch.tensor(0.0, device=accelerator.device)
                 
                 # Compute precision, recall, f1 with edge case handling
                 # y_true = unlabeled_pseudo_prefs, y_pred = unlabeled_masks
@@ -1044,17 +1062,20 @@ def main():
                         labeled_logits,
                         labeled_pseudo_prefs,
                         reduction='none'
-                    ) * labeled_masks.float()
+                    ) * labeled_masks
                 ).mean()
                 pseudo_unlabeled_loss = (
                     binary_cross_entropy_with_logits(
                         unlabeled_logits,
                         unlabeled_pseudo_prefs,
                         reduction='none'
-                    ) * unlabeled_masks.float()
+                    ) * unlabeled_masks
                 ).mean()
                 labeled_loss = binary_cross_entropy_with_logits(labeled_logits, labeled_prefs, reduction='sum')
-                loss = (pseudo_labeled_loss + pseudo_unlabeled_loss) / bsz + curriculum_weight * (labeled_loss - pseudo_labeled_loss) / labeled_bsz
+                if args.no_dr:
+                    loss = (labeled_loss + pseudo_unlabeled_loss) / bsz
+                else:
+                    loss = (pseudo_labeled_loss + pseudo_unlabeled_loss) / bsz + curriculum_weight * (labeled_loss - pseudo_labeled_loss) / labeled_bsz
                 #### END LOSS COMPUTATION ###
                     
                 # Gather metrics across all processes (these are already averaged over batch)
@@ -1064,6 +1085,7 @@ def main():
                 avg_ref_mse = accelerator.gather(raw_ref_loss.detach()).mean().item()
                 avg_acc = accelerator.gather(implicit_acc.detach()).mean().item()
                 avg_pseudo_unlabeled_acc = accelerator.gather(pseudo_unlabeled_acc.detach()).mean().item()
+                avg_masked_pseudo_unlabeled_acc = accelerator.gather(masked_pseudo_unlabeled_acc.detach()).mean().item()
                 
                 avg_pseudo_precision = accelerator.gather(pseudo_precision).mean().item()
                 avg_pseudo_recall = accelerator.gather(pseudo_recall).mean().item()
@@ -1077,6 +1099,7 @@ def main():
                     "ref_mse_unaccumulated": avg_ref_mse,
                     "implicit_acc_accumulated": avg_acc,
                     "pseudo_unlabeled_acc_accumulated": avg_pseudo_unlabeled_acc,
+                    "masked_pseudo_unlabeled_acc_accumulated": avg_masked_pseudo_unlabeled_acc,
                     "pseudo_precision": avg_pseudo_precision,
                     "pseudo_recall": avg_pseudo_recall,
                     "pseudo_f1": avg_pseudo_f1,
@@ -1085,9 +1108,6 @@ def main():
                 # Accumulate all metrics
                 for key in metrics_accumulated:
                     metrics_accumulated[key] += current_metrics[key] / args.gradient_accumulation_steps
-                
-                # Debug: Track loss progression
-                loss_history.append(avg_loss)
 
                 # Backpropagate
                 accelerator.backward(loss)
@@ -1108,7 +1128,7 @@ def main():
                 
                 # Log accumulated metrics (averaged across gradient accumulation steps)
                 # Define which metrics go under "diagnostics/" prefix (for wandb/tensorboard grouping)
-                diagnostic_metrics = {"pseudo_unlabeled_acc_accumulated", "pseudo_precision", "pseudo_recall", "pseudo_f1"}
+                diagnostic_metrics = {"pseudo_unlabeled_acc_accumulated", "masked_pseudo_unlabeled_acc_accumulated", "pseudo_precision", "pseudo_recall", "pseudo_f1"}
                 
                 # Build log dict with appropriate prefixes
                 log_dict = {}
