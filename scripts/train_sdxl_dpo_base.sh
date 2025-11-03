@@ -1,18 +1,21 @@
 MODEL_PATH="/common/users/hn315/checkpoints/models--stabilityai--stable-diffusion-xl-base-1.0/snapshots/462165984030d82259a11f4367a4eed129e94a7b"
-LR=2.5e-8
+LR=2e-8
 warmup_steps=5
-lr_scheduler="constant"
+rule="1:200,0.1"
+lr_scheduler="piecewise_constant"
+MANIFEST="datasets/manifest_high_margin/5k_high_margin.json"
+OUTPUT_DIR="training_runs/sdxl_dpo_fifa5k_high_margin_100_ddp"
 
-accelerate launch --config-file "configs/train_sdxl_dpo.yaml" train_sdxl_dpo_base.py \
+accelerate launch --config-file "configs/train_sdxl_dpo_ddp.yaml" train_sdxl_dpo_base.py \
     --mixed_precision "bf16" \
     --pretrained_model_name_or_path $MODEL_PATH \
-    --output_dir "training_runs/sdxl_dpo_fifa5k_high_margin_100" \
-    --good_manifest "datasets/manifest/5k_high_margin.json" \
-    --train_data_dir "datasets/FiFA-100k/data/train" \
-    --prompt_dir "datasets/precomputed_prompt_embeds/5k_high_margin" \
+    --output_dir $OUTPUT_DIR \
+    --good_manifest $MANIFEST \
+    --train_data_dir "datasets/FiFA-100k-sorted/data/train" \
+    --prompt_dir "datasets/precomputed_prompt_embeds/5k_high_margin_sorted" \
     --train_batch_size 1 \
-    --dataloader_num_workers 32 \
-    --gradient_accumulation_steps 32 \
+    --dataloader_num_workers 16 \
+    --gradient_accumulation_steps 64 \
     --max_train_steps 10000 \
     --learning_rate $LR \
     --lr_warmup_steps $warmup_steps \
@@ -24,4 +27,5 @@ accelerate launch --config-file "configs/train_sdxl_dpo.yaml" train_sdxl_dpo_bas
     --report_to "wandb" \
     --tracker_project_name "dpo_fifa_5k" \
     --train_method "dpo" \
-    # --lr_scheduler_rule $rule \
+    --lr_scheduler_rule $rule \
+    --scale_lr \

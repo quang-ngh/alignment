@@ -182,7 +182,7 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--no_hflip",
+        "--offloading",
         action="store_true",
         help="whether to supress horizontal flipping",
     )
@@ -548,6 +548,7 @@ def main():
     ref_unet.requires_grad_(False)
     unet.requires_grad_(True)
 
+    
 
     # xformers efficient attention
     if is_xformers_available():
@@ -612,12 +613,15 @@ def main():
             args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
-    optimizer = torch.optim.AdamW(
+    # optimizer_cls = torch.optim.AdamW
+    optimizer_cls = torch.optim.Adafactor
+
+    optimizer = optimizer_cls(
         unet.parameters(),
         lr=args.learning_rate,
-        betas=(args.adam_beta1, args.adam_beta2),
+        # betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon,
+        # eps=args.adam_epsilon,
     )
 
     resolution = (1024,1024) # sd1.5
@@ -684,6 +688,9 @@ def main():
     ref_unet.to(accelerator.device, dtype=weight_dtype)
     ### END ACCELERATOR PREP ###
     
+    if args.offloading:
+        vae = accelerate.cpu_offload(vae)
+        ref_unet = accelerate.cpu_offload(ref_unet)
     
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(good_dataloader) / args.gradient_accumulation_steps)

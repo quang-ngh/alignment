@@ -82,8 +82,8 @@ from tqdm import tqdm
 # print(len(total))
 
 from diffusers import StableDiffusionXLPipeline
-annotation = "./datasets/manifest/5k_high_margin.json"
-output_dirs = "./datasets/precomputed_prompt_embeds/5k_high_margin"
+annotation = "./datasets/manifest_high_margin/5k_high_margin.json"
+output_dirs = "./datasets/precomputed_prompt_embeds/5k_high_margin_sorted"
 if not os.path.exists(output_dirs):
     os.makedirs(output_dirs, exist_ok=True)
 
