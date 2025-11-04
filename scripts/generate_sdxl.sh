@@ -116,17 +116,18 @@ CKPT=/common/users/hn315/checkpoints/models--stabilityai--stable-diffusion-xl-ba
 
 
 #########
-# DPO_FIFA_UNET="checkpoints/khiem_unet_25label"
-# OUTPUT_DIR="./main_results/partiprompts/sd15_dpo_25label"
+# DPO_FIFA_UNET="training_runs/sdxl_dpo_fifa5k_high_margin_100_ddp/checkpoint-100/unet"
+DPO_FIFA_UNET="training_runs/sdxl_dpo_fifa5k_high_margin_25/checkpoint-50/unet"
+OUTPUT_DIR="./main_results/partiprompts/sdxl_dpo_fifa5k_high_margin_25"
 
 TEST_PROMPTS="datasets/eval_prompts/partiprompts.json"
 NOISE_PATH="datasets/partiprompts_noise_sdxl.pt"
 
-CUDA_VISIBLE_DEVICES=1 python generate.py \
+CUDA_VISIBLE_DEVICES=0 python generate.py \
     gen_type="pickapic_test" \
     model_path=$CKPT \
-    save_dir="./main_results/partiprompts/sdxl_base" \
-    unet_path="" \
+    save_dir=$OUTPUT_DIR \
+    unet_path=$DPO_FIFA_UNET \
     version="sdxl" \
     noise_path=$NOISE_PATH \
     json_path=$TEST_PROMPTS \
@@ -134,34 +135,19 @@ CUDA_VISIBLE_DEVICES=1 python generate.py \
     start_idx=0 \
     guidance_scale=7.5 \
     inference_steps=20 \
-    end_idx=200 &
+    end_idx=300 &
 
 
-CUDA_VISIBLE_DEVICES=2 python generate.py \
+CUDA_VISIBLE_DEVICES=1 python generate.py \
     gen_type="pickapic_test" \
     model_path=$CKPT \
-    save_dir="./main_results/partiprompts/sdxl_base" \
-    unet_path="" \
+    save_dir=$OUTPUT_DIR \
+    unet_path=$DPO_FIFA_UNET \
     version="sdxl" \
     noise_path=$NOISE_PATH \
     json_path=$TEST_PROMPTS \
     batch_size=8 \
-    start_idx=200 \
-    guidance_scale=7.5 \
-    inference_steps=20 \
-    end_idx=400 &
-
-
-CUDA_VISIBLE_DEVICES=3 python generate.py \
-    gen_type="pickapic_test" \
-    model_path=$CKPT \
-    save_dir="./main_results/partiprompts/sdxl_base" \
-    unet_path="" \
-    version="sdxl" \
-    noise_path=$NOISE_PATH \
-    json_path=$TEST_PROMPTS \
-    batch_size=8 \
-    start_idx=400 \
+    start_idx=300 \
     guidance_scale=7.5 \
     inference_steps=20 \
     end_idx=600 &
@@ -170,8 +156,8 @@ CUDA_VISIBLE_DEVICES=3 python generate.py \
 CUDA_VISIBLE_DEVICES=4 python generate.py \
     gen_type="pickapic_test" \
     model_path=$CKPT \
-    save_dir="./main_results/partiprompts/sdxl_base" \
-    unet_path="" \
+    save_dir=$OUTPUT_DIR \
+    unet_path=$DPO_FIFA_UNET \
     version="sdxl" \
     noise_path=$NOISE_PATH \
     json_path=$TEST_PROMPTS \
@@ -179,35 +165,64 @@ CUDA_VISIBLE_DEVICES=4 python generate.py \
     start_idx=600 \
     guidance_scale=7.5 \
     inference_steps=20 \
-    end_idx=800 &
+    end_idx=900 &
 
 
 CUDA_VISIBLE_DEVICES=5 python generate.py \
     gen_type="pickapic_test" \
     model_path=$CKPT \
-    save_dir="./main_results/partiprompts/sdxl_base" \
-    unet_path="" \
+    save_dir=$OUTPUT_DIR \
+    unet_path=$DPO_FIFA_UNET \
     version="sdxl" \
     noise_path=$NOISE_PATH \
     json_path=$TEST_PROMPTS \
     batch_size=8 \
-    start_idx=800 \
+    start_idx=900 \
     guidance_scale=7.5 \
     inference_steps=20 \
-    end_idx=1000 &
-
+    end_idx=1200 &
 
 CUDA_VISIBLE_DEVICES=6 python generate.py \
     gen_type="pickapic_test" \
     model_path=$CKPT \
-    save_dir="./main_results/partiprompts/sdxl_base" \
-    unet_path="" \
+    save_dir=$OUTPUT_DIR \
+    unet_path=$DPO_FIFA_UNET \
     version="sdxl" \
     noise_path=$NOISE_PATH \
     json_path=$TEST_PROMPTS \
     batch_size=8 \
-    start_idx=1000 \
+    start_idx=1200 \
     guidance_scale=7.5 \
     inference_steps=20 \
     end_idx=-1 &
+
+
+# CUDA_VISIBLE_DEVICES=5 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path=$CKPT \
+#     save_dir="./main_results/partiprompts/sdxl_base" \
+#     unet_path="" \
+#     version="sdxl" \
+#     noise_path=$NOISE_PATH \
+#     json_path=$TEST_PROMPTS \
+#     batch_size=8 \
+#     start_idx=800 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=1000 &
+
+
+# CUDA_VISIBLE_DEVICES=6 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path=$CKPT \
+#     save_dir="./main_results/partiprompts/sdxl_base" \
+#     unet_path="" \
+#     version="sdxl" \
+#     noise_path=$NOISE_PATH \
+#     json_path=$TEST_PROMPTS \
+#     batch_size=8 \
+#     start_idx=1000 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=-1 &
 

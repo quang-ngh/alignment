@@ -16,16 +16,15 @@ accelerate launch --config-file "configs/train_sdxl_dpo_ddp.yaml" train_sdxl_dpo
     --train_batch_size 1 \
     --dataloader_num_workers 16 \
     --gradient_accumulation_steps 64 \
-    --max_train_steps 10000 \
+    --max_train_steps 100 \
     --learning_rate $LR \
     --lr_warmup_steps $warmup_steps \
     --lr_scheduler $lr_scheduler \
-    --max_train_steps 1000 \
     --num_train_epochs 5 \
-    --checkpointing_steps 100 \
-    --gradient_checkpointing \
+    --checkpointing_steps 50 \
     --report_to "wandb" \
     --tracker_project_name "dpo_fifa_5k" \
     --train_method "dpo" \
     --lr_scheduler_rule $rule \
     --scale_lr \
+    --gradient_checkpointing \

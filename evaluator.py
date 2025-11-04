@@ -62,7 +62,7 @@ def _load_pickscore(model_dir: Optional[str] = None, processor_dir: Optional[str
         default_model_dir if os.path.isdir(default_model_dir) else "yuvalkirstain/PickScore_v1"
     )
 
-    _pickscore_processor = AutoProcessor.from_pretrained(processor_name_or_path)
+    _pickscore_processor = AutoProcessor.from_pretrained(processor_name_or_path, use_fast=True)
     _pickscore_model = AutoModel.from_pretrained(model_pretrained_name_or_path).eval().to(_DEVICE)
 
 
@@ -279,7 +279,7 @@ def benchmarking_pickscore(base_image_dir="output", prompt_path="datasets/eval_p
         for p, s in zip(list_test_prompts, list_scores):
             writer.writerow([p, f"{s:.4f}"])
         avg_score = sum(list_scores) / len(list_scores) if list_scores else 0
-        writer.writerow(['average', f"{avg_score:.4f}"])
+        writer.writerow(['average', f"{avg_score:.6f}"])
 
 
 def benchmarking_aescore(base_image_dir="output", prompt_path="datasets/eval_prompts/pickapic_test_prompts.json", name="ae_base_sd15_pickapic_test"):

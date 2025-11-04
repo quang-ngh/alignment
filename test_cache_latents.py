@@ -44,7 +44,7 @@ decoded_images[0].save(
     "generation.gif",
     save_all=True,
     append_images=decoded_images[1:],
-    duration=50,   # duration(ms) per frame, adjust if desired
+    duration=10,   # duration(ms) per frame, adjust if desired
     loop=1
 )
 

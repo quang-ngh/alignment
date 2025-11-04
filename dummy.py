@@ -1,3 +1,4 @@
+from shlex import join
 import numpy as np
 import json
 import os
@@ -81,30 +82,63 @@ from tqdm import tqdm
 
 # print(len(total))
 
-from diffusers import StableDiffusionXLPipeline
-annotation = "./datasets/manifest_high_margin/5k_high_margin.json"
-output_dirs = "./datasets/precomputed_prompt_embeds/5k_high_margin_sorted"
-if not os.path.exists(output_dirs):
-    os.makedirs(output_dirs, exist_ok=True)
+# from diffusers import StableDiffusionXLPipeline
+# annotation = "./datasets/manifest_high_margin/5k_high_margin.json"
+# output_dirs = "./datasets/precomputed_prompt_embeds/5k_high_margin_sorted"
+# if not os.path.exists(output_dirs):
+#     os.makedirs(output_dirs, exist_ok=True)
 
-model_dir="/common/users/hn315/checkpoints/models--stabilityai--stable-diffusion-xl-base-1.0/snapshots/462165984030d82259a11f4367a4eed129e94a7b"
-pipeline = StableDiffusionXLPipeline.from_pretrained(model_dir, unet=None, vae=None, torch_dtype=torch.bfloat16).to("cuda")
+# model_dir="/common/users/hn315/checkpoints/models--stabilityai--stable-diffusion-xl-base-1.0/snapshots/462165984030d82259a11f4367a4eed129e94a7b"
+# pipeline = StableDiffusionXLPipeline.from_pretrained(model_dir, unet=None, vae=None, torch_dtype=torch.bfloat16).to("cuda")
 
-objs = json.load(open(annotation, "r"))
-for item in tqdm(objs):
-    prompt = item["caption"]
-    basename = item["image_0_basename"].split(".")[0]
-    output_path = os.path.join(output_dirs, f"{basename}.pt")
-    prompt_embeds, _, pooled_prompt_embeds, _ = pipeline.encode_prompt(
-        prompt=prompt,
-        negative_prompt="",
-        device="cuda",
-        num_images_per_prompt=1,
-        do_classifier_free_guidance=False,
-    )
-    torch.save(
-        (prompt_embeds.detach().cpu(), pooled_prompt_embeds.detach().cpu()),
-        output_path
-    )
-# breakpoint()
+# objs = json.load(open(annotation, "r"))
+# for item in tqdm(objs):
+#     prompt = item["caption"]
+#     basename = item["image_0_basename"].split(".")[0]
+#     output_path = os.path.join(output_dirs, f"{basename}.pt")
+#     prompt_embeds, _, pooled_prompt_embeds, _ = pipeline.encode_prompt(
+#         prompt=prompt,
+#         negative_prompt="",
+#         device="cuda",
+#         num_images_per_prompt=1,
+#         do_classifier_free_guidance=False,
+#     )
+#     torch.save(
+#         (prompt_embeds.detach().cpu(), pooled_prompt_embeds.detach().cpu()),
+#         output_path
+#     )
+# # breakpoint()
+
+label = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json", "r"))
+pseudo_unlabeled = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_qwen.json", "r"))
+total = label + pseudo_unlabeled
+res = []
+for item in total:
+    res.append(item)
+
+json.dump(res, open("datasets/manifest_high_margin/labeled_and_pseudo_unlabeled_qwen.json", "w"))
+
+# unlabel = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json", "r"))
+# pseudo_unlabel = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_labeled_clip.json", "r"))
+
+# res=[]
+# check = {}
+# for item in unlabel:
+#     check[item["image_0_basename"]] = item["refer_id"]
+
+# for item in pseudo_unlabel:
+#     check_name = item["image_0_basename"]
+
+#     pseudo_label = float(item["refer_id"])
+#     if pseudo_label != check[check_name]:
+#         res.append(item)
+# print(len(res) / len(pseudo_unlabel))
+# # sd = ""
+# # for item in res:
+# #     sd += f"{item['caption']}\n"
+
+# # with open("check_qwen.txt", "w") as f:
+# #     f.write(sd)
+
+    
 

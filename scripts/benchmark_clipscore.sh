@@ -1,8 +1,8 @@
 CUDA_VISIBLE_DEVICES=4 python evaluator.py \
     benchmark_type="clipscore" \
-    image_dir="main_results/partiprompts/sdxl_base" \
+    image_dir="main_results/partiprompts/sdxl_dpo_fifa5k_high_margin_ddp" \
     prompt_dir="datasets/eval_prompts/partiprompts.json" \
-    name="eval_results/main/clipscore/sdxl_base" &
+    name="eval_results/main/clipscore/sdxl_dpo_fifa5k_high_margin_ddp" &
 
 # CUDA_VISIBLE_DEVICES=5 python evaluator.py \
 #     benchmark_type="clipscore" \

@@ -30,4 +30,3 @@ accelerate launch --config-file "configs/train_sdxl_dpo_ddp.yaml" train_sdxl_dpo
     --train_method "dpo" \
     --lr_scheduler_rule $rule \
     --scale_lr \
-    --offloading \

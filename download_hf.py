@@ -46,8 +46,8 @@ def main(args):
     
     # Download the repository
     download_hf_repo(
-        repo_id="madebyollin/sdxl-vae-fp16-fix",
-        local_dir="./checkpoints/sdxl_vae_fp16_fix",
+        repo_id="drproduck/sdxl_5k_steps_100_faithful_ckpt_50",
+        local_dir="./checkpoints/khiem_sdxl",
         repo_type=repo_type,
     )
 

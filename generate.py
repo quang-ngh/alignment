@@ -30,11 +30,13 @@ def get_sd_model(model_path, unet_path=None, version="sd15", device="cuda"):
         ).to(device)
         return pipeline
 
+    vae = AutoencoderKL.from_pretrained("checkpoints", subfolder="sdxl_vae_fp16_fix", torch_dtype=torch.float16).to(device)
     if version == "sdxl":
         from diffusers import StableDiffusionXLPipeline
         pipeline = StableDiffusionXLPipeline.from_pretrained(
             model_path, 
             unet=unet, 
+            vae=vae,
             torch_dtype=torch.float16, 
             safety_checker=None,
             scheduler=scheduler

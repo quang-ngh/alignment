@@ -5,9 +5,14 @@ import io
 import logging
 import math
 import os
+import random
+import json
+from torch.nn.functional import binary_cross_entropy_with_logits
 
 import accelerate
 import datasets
+import numpy as np
+from PIL import Image
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
@@ -15,21 +20,95 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.state import AcceleratorState
-from accelerate.utils import ProjectConfiguration, set_seed, DistributedType
+from accelerate.utils import ProjectConfiguration, set_seed
+from datasets import load_dataset
 from packaging import version
+from torchvision import transforms
 from tqdm.auto import tqdm
-from transformers import CLIPTextModel, CLIPTokenizer, CLIPTextModelWithProjection
+from transformers import CLIPTextModel, CLIPTokenizer
+from transformers.utils import ContextManagers
 
 import diffusers
-from diffusers.optimization import get_scheduler
+# from diffusers.optimization import get_scheduler
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel, StableDiffusionXLPipeline
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
+from sklearn.metrics import precision_score, recall_score, f1_score
 import copy
 from src.utils import *
-import warnings
-warnings.filterwarnings("ignore", category=FutureWarning)
+from utils import get_scheduler
 
+
+def safe_precision_score(y_true, y_pred):
+    """
+    Wrapper for precision_score that handles edge cases where metrics would be undefined.
+    Returns 0.0 for edge cases (all predictions 0 or all labels 0).
+    
+    Args:
+        y_true: True labels (numpy array)
+        y_pred: Predicted labels (numpy array)
+    
+    Returns:
+        float: Precision score, or 0.0 for edge cases
+    """
+    num_pos_predictions = y_pred.sum()
+    num_pos_labels = y_true.sum()
+    
+    if num_pos_predictions == 0 or num_pos_labels == 0:
+        return 0.0
+    
+    try:
+        return float(precision_score(y_true, y_pred, zero_division=0))
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def safe_recall_score(y_true, y_pred):
+    """
+    Wrapper for recall_score that handles edge cases where metrics would be undefined.
+    Returns 0.0 for edge cases (all predictions 0 or all labels 0).
+    
+    Args:
+        y_true: True labels (numpy array)
+        y_pred: Predicted labels (numpy array)
+    
+    Returns:
+        float: Recall score, or 0.0 for edge cases
+    """
+    num_pos_predictions = y_pred.sum()
+    num_pos_labels = y_true.sum()
+    
+    if num_pos_predictions == 0 or num_pos_labels == 0:
+        return 0.0
+    
+    try:
+        return float(recall_score(y_true, y_pred, zero_division=0))
+    except (ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def safe_f1_score(y_true, y_pred):
+    """
+    Wrapper for f1_score that handles edge cases where metrics would be undefined.
+    Returns 0.0 for edge cases (all predictions 0 or all labels 0).
+    
+    Args:
+        y_true: True labels (numpy array)
+        y_pred: Predicted labels (numpy array)
+    
+    Returns:
+        float: F1 score, or 0.0 for edge cases
+    """
+    num_pos_predictions = y_pred.sum()
+    num_pos_labels = y_true.sum()
+    
+    if num_pos_predictions == 0 or num_pos_labels == 0:
+        return 0.0
+    
+    try:
+        return float(f1_score(y_true, y_pred, zero_division=0))
+    except (ValueError, ZeroDivisionError):
+        return 0.0
 
 if is_wandb_available():
     import wandb
@@ -38,7 +117,7 @@ if is_wandb_available():
     
 ## SDXL
 from transformers import AutoTokenizer, PretrainedConfig
-from src.dataset import BaseDataset, DubiousDataset
+from src.dataset import BaseDataset, DRDataset
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -79,10 +158,16 @@ def parse_args():
         "--input_perturbation", type=float, default=0, help="The scale of input perturbation. Recommended 0.1."
     )
     parser.add_argument(
-        "--good_manifest", type=str, default='', help="Good manifest"
+        "--labeled_manifest", type=str, default='', help="Labeled manifest"
     )
     parser.add_argument(
-        "--dubious_manifest", type=str, default='', help="Dubious manifest"
+        "--unlabeled_manifest", type=str, default='', help="Unlabeled manifest"
+    )
+    parser.add_argument(
+        "--labeled_pseudo_manifest", type=str, default='', help="Labeled pseudo manifest"
+    )
+    parser.add_argument(
+        "--unlabeled_pseudo_manifest", type=str, default='', help="Unlabeled pseudo manifest"
     )
     parser.add_argument(
         "--pretrained_model_name_or_path",
@@ -149,12 +234,6 @@ def parse_args():
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
-        "--prompt_dir",
-        type=str,
-        default=None,
-        help="The output directory where the model predictions and checkpoints will be written.",
-    )
-    parser.add_argument(
         "--cache_dir",
         type=str,
         default=None,
@@ -182,7 +261,7 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--offloading",
+        "--no_hflip",
         action="store_true",
         help="whether to supress horizontal flipping",
     )
@@ -366,9 +445,6 @@ def parse_args():
         "--image_to_reward_path", type=str, default='', help="Path to image folder"
     )
     parser.add_argument(
-        "--train_method", type=str, default='', help="Train method"
-    )
-    parser.add_argument(
         "--use_new_label_0",
         default=False,
         action="store_true",
@@ -381,7 +457,19 @@ def parse_args():
         "--min_lr", type=float, default=0.0, help="minimum learning rate"
     )
     parser.add_argument(
-        "--soft_label_mode", action="store_true", help="Use soft label (reward-weighted dpo loss) mode"
+        "--mu", type=float, default=1.0, help="ratio of unlabeled to labeled samples"
+    )
+    parser.add_argument(
+        "--hard_pseudo_label", default=False, action="store_true", help="Use hard pseudo-label (0/1) instead of soft pseudo-label (0-1)",
+    )
+    parser.add_argument(
+        "--curriculum", choices=['none', 'linear', 'quadratic'], default='none', help="Curriculum",
+    )
+    parser.add_argument(
+        "--threshold", type=float, default=0.0, help="Threshold for pseudo-label. default 0 leads to no masking."
+    )
+    parser.add_argument(
+        "--no-dr", action="store_true", help="No DR"
     )
     
     args = parser.parse_args()
@@ -407,13 +495,24 @@ def parse_args():
 
 
 # Adapted from pipelines.StableDiffusionXLPipeline.encode_prompt
-def encode_prompt_sdxl(input_prompts, text_encoders, tokenizers, pooled_prompt_embeds=None):
-
+def encode_prompt_sdxl(batch, text_encoders, tokenizers, proportion_empty_prompts, caption_column, is_train=True):
     prompt_embeds_list = []
+    prompt_batch = batch[caption_column]
+
+    captions = []
+    for caption in prompt_batch:
+        if random.random() < proportion_empty_prompts:
+            captions.append("")
+        elif isinstance(caption, str):
+            captions.append(caption)
+        elif isinstance(caption, (list, np.ndarray)):
+            # take a random caption if there are multiple
+            captions.append(random.choice(caption) if is_train else caption[0])
+
     with torch.no_grad():
         for tokenizer, text_encoder in zip(tokenizers, text_encoders):
             text_inputs = tokenizer(
-                input_prompts,
+                captions,
                 padding="max_length",
                 max_length=tokenizer.model_max_length,
                 truncation=True,
@@ -426,9 +525,7 @@ def encode_prompt_sdxl(input_prompts, text_encoders, tokenizers, pooled_prompt_e
             )
 
             # We are only ALWAYS interested in the pooled output of the final text encoder
-            if pooled_prompt_embeds is None:
-                pooled_prompt_embeds = prompt_embeds[0]
-
+            pooled_prompt_embeds = prompt_embeds[0]
             prompt_embeds = prompt_embeds.hidden_states[-2]
             bs_embed, seq_len, _ = prompt_embeds.shape
             prompt_embeds = prompt_embeds.view(bs_embed, seq_len, -1)
@@ -521,17 +618,9 @@ def main():
     tokenizer = CLIPTokenizer.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="tokenizer", revision=args.revision
     )
-    tokenizer_2 = CLIPTokenizer.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="tokenizer_2", revision=args.revision
+    text_encoder = CLIPTextModel.from_pretrained(
+        args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision
     )
-    text_encoder = None
-    text_encoder_2 = None
-    # text_encoder = CLIPTextModel.from_pretrained(
-    #     args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision
-    # )
-    # text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
-    #     args.pretrained_model_name_or_path, subfolder="text_encoder_2", revision=args.revision
-    # )
     vae = AutoencoderKL.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision
     )
@@ -543,11 +632,9 @@ def main():
 
     # Freeze vae, text_encoder(s), reference unet
     vae.requires_grad_(False)
-    # text_encoder.requires_grad_(False)
-    # text_encoder_2.requires_grad_(False)
+    text_encoder.requires_grad_(False)
     ref_unet.requires_grad_(False)
     unet.requires_grad_(True)
-
     
 
     # xformers efficient attention
@@ -576,8 +663,7 @@ def main():
                 model.save_pretrained(os.path.join(output_dir, "unet"))
 
                 # make sure to pop weight so that corresponding model is not saved again
-                if weights:
-                    weights.pop()
+                weights.pop()
 
         def load_model_hook(models, input_dir):
 
@@ -608,61 +694,72 @@ def main():
     if args.allow_tf32:
         torch.backends.cuda.matmul.allow_tf32 = True
 
+    resolution = (512,512) # sd1.5
+    labeled_dataset = DRDataset(manifest=args.labeled_manifest, image_dir=args.train_data_dir, resolution=resolution, pseudo_label_path=args.labeled_pseudo_manifest)
+    unlabeled_dataset = DRDataset(manifest=args.unlabeled_manifest, image_dir=args.train_data_dir, resolution=resolution, pseudo_label_path=args.unlabeled_pseudo_manifest)
+
+    # override train_batch_size
+    labeled_train_batch_size = args.train_batch_size
+    unlabeled_train_batch_size = int(args.train_batch_size * args.mu)
+    args.train_batch_size = labeled_train_batch_size + unlabeled_train_batch_size
+
+    # scale learning rate
     if args.scale_lr:
         args.learning_rate = (
             args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
-    # optimizer_cls = torch.optim.AdamW
-    optimizer_cls = transformers.Adafactor
-
-    optimizer = optimizer_cls(
+    optimizer = torch.optim.AdamW(
         unet.parameters(),
         lr=args.learning_rate,
+        betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
-        clip_threshold=1.0,
-        scale_parameter=False,
-        relative_step=False,
-    )
-
-    resolution = (1024,1024) # sd1.5
-    good_dataset = BaseDataset(
-        manifest=args.good_manifest, 
-        image_dir=args.train_data_dir, 
-        resolution=resolution, 
-        prompt_dir=args.prompt_dir
+        eps=args.adam_epsilon,
     )
 
     # DataLoaders creation:
-    good_dataloader = torch.utils.data.DataLoader(
-        good_dataset,
+    labeled_dataloader = torch.utils.data.DataLoader(
+        labeled_dataset,
         shuffle=True,
-        batch_size=args.train_batch_size,
+        drop_last=True,
+        batch_size=labeled_train_batch_size,
+        num_workers=args.dataloader_num_workers,
+    )
+    unlabeled_dataloader = torch.utils.data.DataLoader(
+        unlabeled_dataset,
+        shuffle=True,
+        drop_last=True,
+        batch_size=unlabeled_train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
     ##### END BIG OLD DATASET BLOCK #####
     
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(len(good_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(len(labeled_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
+    # lr_scheduler = get_scheduler(
+    #     args.lr_scheduler,
+    #     optimizer=optimizer,
+    #     num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
+    #     num_training_steps=args.max_train_steps * accelerator.num_processes,
+    # )
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps * accelerator.num_processes,
         num_training_steps=args.max_train_steps * accelerator.num_processes,
         step_rules=args.lr_scheduler_rule,
-        # min_lr=args.min_lr,
+        min_lr=args.min_lr,
     )
 
     
-
     #### START ACCELERATOR PREP ####
-    unet, optimizer, good_dataloader,  lr_scheduler = accelerator.prepare(
-        unet, optimizer, good_dataloader, lr_scheduler
+    unet, optimizer, labeled_dataloader, unlabeled_dataloader, lr_scheduler = accelerator.prepare(
+        unet, optimizer, labeled_dataloader, unlabeled_dataloader, lr_scheduler
     )
 
     # For mixed precision training we cast all non-trainable weights (vae, non-lora text_encoder and non-lora unet) to half-precision
@@ -677,24 +774,15 @@ def main():
 
         
     # Move text_encode and vae to gpu and cast to weight_dtype
-
-    # if args.prompt_dir is not None:
-    #     del text_encoder, text_encoder_2, tokenizer, tokenizer_2
-    #     torch.cuda.empty_cache()
-    # else:
-    #     text_encoder.to(accelerator.device, dtype=weight_dtype)
-    #     text_encoder_2.to(accelerator.device, dtype=weight_dtype)
-
-    vae.to(accelerator.device, dtype=weight_dtype) 
+    vae.to(accelerator.device, dtype=weight_dtype)
+    text_encoder.to(accelerator.device, dtype=weight_dtype)
     ref_unet.to(accelerator.device, dtype=weight_dtype)
+    
     ### END ACCELERATOR PREP ###
     
-    if args.offloading:
-        vae = accelerate.cpu_offload(vae)
-        ref_unet = accelerate.cpu_offload(ref_unet)
     
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(good_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(len(labeled_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
@@ -710,16 +798,16 @@ def main():
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
     logger.info("***** Running training *****")
-    logger.info(f"  Num good examples = {len(good_dataset)}")
+    logger.info(f"  Num labeled examples = {len(labeled_dataset)}")
+    logger.info(f"  Num unlabeled examples = {len(unlabeled_dataset)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {args.train_batch_size * 4}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size * 4}")
+    logger.info(f"  Instantaneous batch size per device = {args.train_batch_size} (x2 for number of images)")
+    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size} (x2 for number of images)")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     global_step = 0
     first_epoch = 0
-
-
+    
     # Potentially load in the weights and states from a previous save
     if args.resume_from_checkpoint:
         if args.resume_from_checkpoint != "latest":
@@ -752,46 +840,89 @@ def main():
 
 
     #### START MAIN TRAINING LOOP #####
-    torch.cuda.empty_cache()
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
-        train_loss = 0.0
-        implicit_acc_accumulated = 0.0
-        for step, good_batch in enumerate(good_dataloader):
+        # Initialize accumulated metrics dictionary - easy to add new metrics here!
+        metrics_accumulated = {
+            "train_loss": 0.0,
+            "model_mse_unaccumulated": 0.0,
+            "ref_mse_unaccumulated": 0.0,
+            "implicit_acc_accumulated": 0.0,
+            "pseudo_unlabeled_acc_accumulated": 0.0,
+            "masked_pseudo_unlabeled_acc_accumulated": 0.0,
+            "pseudo_precision": 0.0,
+            "pseudo_recall": 0.0,
+            "pseudo_f1": 0.0,
+        }
+        for step, (labeled_batch, unlabeled_batch) in enumerate(zip(labeled_dataloader, unlabeled_dataloader)):
             # Skip steps until we reach the resumed step 
             with accelerator.accumulate(unet):
 
                 # Get data from good dataset
-                prompt_embeds = good_batch.get("prompt_embeds", None)
-                pooled_prompt_embeds = good_batch.get("pooled_prompt_embeds", None)
-
-                from_good_prompts = good_batch["prompt"]
-                from_good_win_images = good_batch["win_image"]
-                from_good_lose_images = good_batch["lose_image"]
-                from_good_ids = good_batch["refer_id"]
-                use_latent_from_good = good_batch.get("use_latent", False)
-                if use_latent_from_good:
-                    from_good_win_latents = good_batch["win_latent"]
-                    from_good_lose_latents = good_batch["lose_latent"]
+                labeled_prompts = labeled_batch["prompt"]
+                labeled_images_0 = labeled_batch["image_0"]
+                labeled_images_1 = labeled_batch["image_1"]
+                labeled_prefs = labeled_batch["preference"].to(accelerator.device, dtype=weight_dtype)
+                labeled_pseudo_prefs = labeled_batch["pseudo_preference"].to(accelerator.device, dtype=weight_dtype)
+                use_latent_from_labeled = labeled_batch.get("use_latent", False)
+                if use_latent_from_labeled:
+                    labeled_latents_0 = labeled_batch["latent_0"]
+                    labeled_latents_1 = labeled_batch["latent_1"]
                 else:
                     with torch.no_grad():
-                        from_good_win_latents = vae.encode(from_good_win_images.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
-                        from_good_lose_latents = vae.encode(from_good_lose_images.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
+                        labeled_latents_0 = vae.encode(labeled_images_0.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
+                        labeled_latents_1 = vae.encode(labeled_images_1.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
 
-                bsz = from_good_win_latents.shape[0]
-                win_latents = from_good_win_latents
-                lose_latents = from_good_lose_latents
+                # Get data from unlabeled dataset
+                unlabeled_prompts = unlabeled_batch["prompt"]
+                unlabeled_images_0 = unlabeled_batch["image_0"]
+                unlabeled_images_1 = unlabeled_batch["image_1"]
+                unlabeled_prefs = unlabeled_batch["preference"].to(accelerator.device, dtype=weight_dtype)
+                unlabeled_pseudo_prefs = unlabeled_batch["pseudo_preference"].to(accelerator.device, dtype=weight_dtype)
+                use_latent_from_unlabeled = unlabeled_batch.get("use_latent", False)
+                if use_latent_from_unlabeled:
+                    unlabeled_latents_0 = unlabeled_batch["latent_0"]
+                    unlabeled_latents_1 = unlabeled_batch["latent_1"]
+                else:
+                    with torch.no_grad():
+                        unlabeled_latents_0 = vae.encode(unlabeled_images_0.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
+                        unlabeled_latents_1 = vae.encode(unlabeled_images_1.to(weight_dtype)).latent_dist.sample() * vae.config.scaling_factor
 
-                latents = torch.cat(
-                    [win_latents, lose_latents],
+                labeled_bsz = labeled_images_0.shape[0]
+                unlabeled_bsz = unlabeled_images_0.shape[0]
+                bsz = labeled_bsz + unlabeled_bsz
+
+                prefs = torch.cat(
+                    [
+                        labeled_prefs,
+                        unlabeled_prefs,
+                    ],
                     dim=0
                 ).to(accelerator.device, dtype=weight_dtype)
-                assert latents.shape[0] == 2 * bsz, "Latents should be twice the batch size"
+
+                latents_0 = torch.cat(
+                    [
+                        labeled_latents_0,
+                        unlabeled_latents_0,
+                    ],
+                    dim=0
+                )
+                latents_1 = torch.cat(
+                    [
+                        labeled_latents_1,
+                        unlabeled_latents_1,
+                    ],
+                    dim=0
+                )
+
+                latents = torch.cat(
+                    [latents_0, latents_1],
+                    dim=0
+                ).to(accelerator.device, dtype=weight_dtype)
 
                 noise = torch.randn_like(latents) 
-                bsz = latents.shape[0]
                 # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=latents.device)
                 timesteps = timesteps.long()
                 # only first 20% timesteps for SDXL refiner
                 if 'refiner' in args.pretrained_model_name_or_path:
@@ -805,25 +936,11 @@ def main():
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
                 # Get the text embedding for conditioning
-                if prompt_embeds is None or pooled_prompt_embeds is None:
-                    input_prompts = from_good_prompts[:bsz] 
-                    prompt_batch = encode_prompt_sdxl(input_prompts, text_encoders=[text_encoder, text_encoder_2], tokenizers=[tokenizer, tokenizer_2])
-                    prompt_embeds = prompt_batch["prompt_embeds"]
-                    pooled_prompt_embeds = prompt_batch["pooled_prompt_embeds"]
-                    # prompt_embeds, _, pooled_prompt_embeds, _ = pipe.encode_prompt(prompt=input_prompts, negative_prompt="", device=accelerator.device, num_images_per_prompt=1, do_classifier_free_guidance=False)
-                    pooled_prompt_embeds = pooled_prompt_embeds.repeat(2, 1).to(dtype=weight_dtype, device=accelerator.device)
-                    encoder_hidden_states = prompt_embeds.repeat(2, 1, 1).to(dtype=weight_dtype, device=accelerator.device)
-
-                add_time_ids = torch.tensor([1024, 1024, 0, 0, 1024, 1024], dtype=weight_dtype, device=accelerator.device)[None, :].repeat(timesteps.size(0), 1)    
-                prompt_embeds = prompt_embeds.repeat(2, 1, 1).to(dtype=weight_dtype, device=accelerator.device)
-                pooled_prompt_embeds = pooled_prompt_embeds.repeat(2, 1).to(dtype=weight_dtype, device=accelerator.device)
-                unet_added_conditions = {
-                    "time_ids": add_time_ids,
-                    "text_embeds": pooled_prompt_embeds,
-                }
-                
-                
-
+                input_prompts = labeled_prompts + unlabeled_prompts
+                input_ids = tokenizer(input_prompts, max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt").input_ids
+                with torch.no_grad():
+                    encoder_hidden_states = text_encoder(input_ids.to(accelerator.device))[0]
+                    encoder_hidden_states = encoder_hidden_states.repeat(2, 1, 1)   #   duplicate for DPO
 
                 ### START PREP BATCH ###
                 # if args.sdxl:
@@ -866,78 +983,141 @@ def main():
                 #         encoder_hidden_states = encoder_hidden_states.repeat(2, 1, 1)
                 #### END PREP BATCH ####
 
-                        
                 assert noise_scheduler.config.prediction_type == "epsilon"
                 target = noise
                
                 # Make the prediction from the model we're learning
+                model_batch_args = (noisy_latents,
+                                    timesteps,
+                                    encoder_hidden_states)
+                added_cond_kwargs = None
+                
                 model_pred = unet(
-                                noisy_latents,
-                                timesteps,
-                                prompt_embeds,
-                                timestep_cond=None,
-                                added_cond_kwargs = unet_added_conditions,
-                            ).sample
+                                *model_batch_args,
+                                  added_cond_kwargs = added_cond_kwargs
+                                 ).sample
                 #### START LOSS COMPUTATION ####
                 # model_pred and ref_pred will be (2 * LBS) x 4 x latent_spatial_dim x latent_spatial_dim
                 # losses are both 2 * LBS
                 # 1st half of tensors is preferred (y_w), second half is unpreferred
                 model_losses = (model_pred - target).pow(2).mean(dim=[1,2,3])
-                model_losses_w, model_losses_l = model_losses.chunk(2)
+                model_losses_0, model_losses_1 = model_losses.chunk(2)
                 # below for logging purposes
-                raw_model_loss = 0.5 * (model_losses_w.mean() + model_losses_l.mean())
+                raw_model_loss = 0.5 * (model_losses_0.mean() + model_losses_1.mean())
                 
-                model_diff = model_losses_w - model_losses_l # These are both LBS (as is t)
-                # (e_w - e_theta(x_w)^2)
-                # (e_l - e_theta(x_l)^2)
-                
+                # model_diff = model_losses_0 - model_losses_1 # These are both LBS (as is t)
+                # (e_0 - e_theta(x_0)^2)
+                # (e_1 - e_theta(x_1)^2)
+                model_diff = model_losses_1 - model_losses_0
+
                 with torch.no_grad(): # Get the reference policy (unet) prediction
                     ref_pred = ref_unet(
-                                noisy_latents,
-                                timesteps,
-                                prompt_embeds,
-                                timestep_cond=None,
-                                added_cond_kwargs = unet_added_conditions,
-                            ).sample.detach()
+                                *model_batch_args,
+                                    added_cond_kwargs = added_cond_kwargs
+                                    ).sample.detach()
                     ref_losses = (ref_pred - target).pow(2).mean(dim=[1,2,3])
-                    ref_losses_w, ref_losses_l = ref_losses.chunk(2)
-                    ref_diff = ref_losses_w - ref_losses_l
-                    raw_ref_loss = ref_losses.mean()    
+                    ref_losses_0, ref_losses_1 = ref_losses.chunk(2)
+                    # ref_diff = ref_losses_0 - ref_losses_1
+                    ref_diff = ref_losses_1 - ref_losses_0
+                    raw_ref_loss = ref_losses.mean()
+
                     
                 scale_term = -0.5 * args.beta_dpo
-                inside_term = scale_term * (model_diff - ref_diff)
-                implicit_acc = (inside_term > 0).sum().float() / inside_term.size(0)
+                logits = scale_term * (model_diff - ref_diff)
+                labeled_logits, unlabeled_logits = logits[:labeled_bsz], logits[labeled_bsz:]
+
+                # soft_pseudo_prefs = torch.sigmoid(logits)
+                # hard_pseudo_prefs = (soft_pseudo_prefs > 0.5).float()
+                # labeled_pseudo_prefs, unlabeled_pseudo_prefs = hard_pseudo_prefs[:labeled_bsz], hard_pseudo_prefs[labeled_bsz:]
+
+                masks = torch.ones_like(logits)
+                labeled_masks = masks[:labeled_bsz]
+                unlabeled_masks = masks[labeled_bsz:]
+
+                implicit_preds = (logits > 0).float()
+                implicit_acc = (implicit_preds == prefs).sum().float() / implicit_preds.size(0)
+
+                # NOTE: log metrics for pseudo labels
+                # Think of mask as a output of abinary classifier: those mask=1 are considered correct.
+                #   The targets are whether pseudo labels are correct (i.e. pseudo_unlabeled_prefs == unlabeled_prefs).
+                # precision, recall, f1. acc in usual sense.
+                pseudo_unlabeled_acc = (unlabeled_pseudo_prefs == unlabeled_prefs).float().mean()
+                # # Compute masked accuracy only for items where mask = 1
+                masked_correct = (unlabeled_pseudo_prefs == unlabeled_prefs)[unlabeled_masks.bool()]
+                if masked_correct.numel() > 0:
+                    masked_pseudo_unlabeled_acc = masked_correct.float().mean()
+                else:
+                    masked_pseudo_unlabeled_acc = torch.tensor(0.0, device=accelerator.device)
                 
-                # if args.soft_label_mode:
-                #     # prepare reward values
-                #     loss1 = -1 * F.logsigmoid(inside_term)
-                #     loss2 = -1 * F.logsigmoid(-inside_term)
-                #     batch_reward = batch["reward_values"].to(dtype=weight_dtype,
-                #                                         device=accelerator.device)
-                #     # softmax over rewards dim=-1
-                #     T = 0.01
-                #     reward_softmax = F.softmax(batch_reward/T, dim=-1)
-                #     eps_1 = reward_softmax[:,0]
-                #     eps_2 = reward_softmax[:,1]
+                # Compute precision, recall, f1 with edge case handling
+                # y_true = unlabeled_pseudo_prefs
+                # y_pred = unlabeled_masks
+                unlabeled_pseudo_prefs_np = unlabeled_pseudo_prefs.clone().float().cpu().numpy()
+                unlabeled_masks_np = unlabeled_masks.clone().float().cpu().numpy()
+                pseudo_precision = torch.tensor(safe_precision_score(unlabeled_pseudo_prefs_np, unlabeled_masks_np), device=accelerator.device)
+                pseudo_recall = torch.tensor(safe_recall_score(unlabeled_pseudo_prefs_np, unlabeled_masks_np), device=accelerator.device)
+                pseudo_f1 = torch.tensor(safe_f1_score(unlabeled_pseudo_prefs_np, unlabeled_masks_np), device=accelerator.device)
 
-                #     # print(f"eps_1: {eps_1}, eps_2: {eps_2}")
+                
 
-                #     loss = (eps_1 * loss1 + eps_2 * loss2).mean()
+                if args.curriculum == 'linear':
+                    curriculum_weight = global_step / args.max_train_steps
+                elif args.curriculum == 'quadratic':
+                    curriculum_weight = (global_step / args.max_train_steps) ** 2
+                else:
+                    curriculum_weight = 1.0
 
-                # else:
-                loss = -1 * F.logsigmoid(inside_term).mean()
+                pseudo_labeled_loss = (
+                    binary_cross_entropy_with_logits(
+                        labeled_logits,
+                        labeled_pseudo_prefs,
+                        reduction='none'
+                    ) * labeled_masks
+                ).mean()
+                pseudo_unlabeled_loss = (
+                    binary_cross_entropy_with_logits(
+                        unlabeled_logits,
+                        unlabeled_pseudo_prefs,
+                        reduction='none'
+                    ) * unlabeled_masks
+                ).mean()
+                labeled_loss = binary_cross_entropy_with_logits(labeled_logits, labeled_prefs, reduction='sum')
+                if args.no_dr:
+                    loss = (labeled_loss + pseudo_unlabeled_loss) / bsz
+                else:
+                    loss = (pseudo_labeled_loss + pseudo_unlabeled_loss) / bsz + curriculum_weight * (labeled_loss - pseudo_labeled_loss) / labeled_bsz
                 #### END LOSS COMPUTATION ###
                     
-                # Gather the losses across all processes for logging 
-                avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()
-                train_loss += avg_loss.item() / args.gradient_accumulation_steps
-                # Also gather:
-                # - model MSE vs reference MSE (useful to observe divergent behavior)
-                # - Implicit accuracy
-                avg_model_mse = accelerator.gather(raw_model_loss.repeat(args.train_batch_size)).mean().item()
-                avg_ref_mse = accelerator.gather(raw_ref_loss.repeat(args.train_batch_size)).mean().item()
-                avg_acc = accelerator.gather(implicit_acc).mean().item()
-                implicit_acc_accumulated += avg_acc / args.gradient_accumulation_steps
+                # Gather metrics across all processes (these are already averaged over batch)
+                # Note: loss is already a scalar, no need to repeat
+                avg_loss = accelerator.gather(loss.detach()).mean().item()
+                avg_model_mse = accelerator.gather(raw_model_loss.detach()).mean().item()
+                avg_ref_mse = accelerator.gather(raw_ref_loss.detach()).mean().item()
+                avg_acc = accelerator.gather(implicit_acc.detach()).mean().item()
+                avg_pseudo_unlabeled_acc = accelerator.gather(pseudo_unlabeled_acc.detach()).mean().item()
+                avg_masked_pseudo_unlabeled_acc = accelerator.gather(masked_pseudo_unlabeled_acc.detach()).mean().item()
+                
+                avg_pseudo_precision = accelerator.gather(pseudo_precision).mean().item()
+                avg_pseudo_recall = accelerator.gather(pseudo_recall).mean().item()
+                avg_pseudo_f1 = accelerator.gather(pseudo_f1).mean().item()
+                
+                # Accumulate metrics across gradient accumulation steps
+                # Add new metrics here by adding to the dictionary below
+                current_metrics = {
+                    "train_loss": avg_loss,
+                    "model_mse_unaccumulated": avg_model_mse,
+                    "ref_mse_unaccumulated": avg_ref_mse,
+                    "implicit_acc_accumulated": avg_acc,
+                    "pseudo_unlabeled_acc_accumulated": avg_pseudo_unlabeled_acc,
+                    "masked_pseudo_unlabeled_acc_accumulated": avg_masked_pseudo_unlabeled_acc,
+                    "pseudo_precision": avg_pseudo_precision,
+                    "pseudo_recall": avg_pseudo_recall,
+                    "pseudo_f1": avg_pseudo_f1,
+                }
+                
+                # Accumulate all metrics
+                for key in metrics_accumulated:
+                    metrics_accumulated[key] += current_metrics[key] / args.gradient_accumulation_steps
 
                 # Backpropagate
                 accelerator.backward(loss)
@@ -946,7 +1126,7 @@ def main():
                         accelerator.clip_grad_norm_(unet.parameters(), args.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
-                optimizer.zero_grad(set_to_none=True)
+                optimizer.zero_grad()
 
             torch.cuda.synchronize()  # Wait for all operations to finish
 
@@ -955,21 +1135,32 @@ def main():
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 global_step += 1
-                accelerator.log({"train_loss": train_loss}, step=global_step)
-                accelerator.log({"model_mse_unaccumulated": avg_model_mse}, step=global_step)
-                accelerator.log({"ref_mse_unaccumulated": avg_ref_mse}, step=global_step)
-                accelerator.log({"implicit_acc_accumulated": implicit_acc_accumulated}, step=global_step)
-                train_loss = 0.0
-                implicit_acc_accumulated = 0.0
-
+                
+                # Log accumulated metrics (averaged across gradient accumulation steps)
+                # Define which metrics go under "diagnostics/" prefix (for wandb/tensorboard grouping)
+                diagnostic_metrics = {"pseudo_unlabeled_acc_accumulated", "masked_pseudo_unlabeled_acc_accumulated", "pseudo_precision", "pseudo_recall", "pseudo_f1"}
+                
+                # Build log dict with appropriate prefixes
+                log_dict = {}
+                for key in metrics_accumulated:
+                    log_key = f"diagnostics/{key}" if key in diagnostic_metrics else key
+                    log_dict[log_key] = metrics_accumulated[key]
+                log_dict["lr"] = lr_scheduler.get_last_lr()[0]
+                
+                accelerator.log(log_dict, step=global_step)
+                
+                # Reset accumulated metrics for next optimizer step
+                metrics_accumulated = {key: 0.0 for key in metrics_accumulated}
+                
                 if global_step % args.checkpointing_steps == 0:
-                    if accelerator.is_main_process or accelerator.distributed_type == DistributedType.DEEPSPEED:
+                    if accelerator.is_main_process:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
                         logger.info("Pretty sure saving/loading is fixed but proceed cautiously")
 
-            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            # Update progress bar with current step metrics (not accumulated)
+            logs = {"step_loss": avg_loss, "lr": lr_scheduler.get_last_lr()[0]}
             if args.train_method == 'dpo':
                 logs["implicit_acc"] = avg_acc
             progress_bar.set_postfix(**logs)
@@ -983,17 +1174,12 @@ def main():
     # Create the pipeline using the trained modules and save it.
     # This will save to top level of output_dir instead of a checkpoint directory
     accelerator.wait_for_everyone()
-    if accelerator.is_main_process or accelerator.distributed_type == DistributedType.DEEPSPEED:
+    if accelerator.is_main_process:
         unet = accelerator.unwrap_model(unet)
-        pipeline = StableDiffusionXLPipeline.from_pretrained(
+        pipeline = StableDiffusionPipeline.from_pretrained(
             args.pretrained_model_name_or_path,
             unet=unet,
             revision=args.revision,
-            text_encoder=None,
-            text_encoder_2=None,
-            tokenizer=None,
-            tokenizer_2=None,
-            vae=None
         )
         pipeline.save_pretrained(args.output_dir)
 
