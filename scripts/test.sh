@@ -10,6 +10,7 @@ GPU_IDS=${1:-"2,3"}
 MODEL_PATH=$2
 OUTPUT_DIR=${3:-"test_outputs_dr_v1"}
 DATASET=${4:-"partiprompts"}
+SDXL=${5:-"0"}
 
 if [ -z "$MODEL_PATH" ]; then
     echo "Error: model-path is required"
@@ -33,6 +34,13 @@ case "$DATASET" in
         exit 1
         ;;
 esac
+
+# Set pretrained model based on SDXL flag
+if [ "$SDXL" = "1" ]; then
+    PRETRAINED_MODEL="stabilityai/stable-diffusion-xl-base-1.0"
+else
+    PRETRAINED_MODEL="runwayml/stable-diffusion-v1-5"
+fi
 
 # Derive version from model-path
 # If path ends with checkpoint-X, use model_name_checkpoint-X
@@ -60,6 +68,7 @@ echo "GPU IDs: $GPU_IDS (num_processes=$NUM_PROCESSES)"
 echo "Output directory: $OUTPUT_DIR"
 echo "Dataset: $DATASET"
 echo "Prompts path: $PROMPTS_PATH"
+echo "Pre-trained model: $PRETRAINED_MODEL"
 echo "Using random port: $RANDOM_PORT"
 
 accelerate launch --gpu_ids "$GPU_IDS" --num_processes=$NUM_PROCESSES --main_process_port=$RANDOM_PORT \
@@ -69,9 +78,9 @@ accelerate launch --gpu_ids "$GPU_IDS" --num_processes=$NUM_PROCESSES --main_pro
     --version "$VERSION" \
     --dataset "$DATASET" \
     --reward_type pickscore \
-    --pretrained_model_name_or_path "stable-diffusion-v1-5/stable-diffusion-v1-5" \
+    --pretrained_model_name_or_path "$PRETRAINED_MODEL" \
     --output-dir "$OUTPUT_DIR" \
     --num_imgs_per_prompt 1 \
-    --batch_size 32 \
+    --batch_size 16 \
     --num_inference_steps 20 \
     --overwrite 0
