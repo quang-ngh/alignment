@@ -153,6 +153,7 @@ class DRDataset(BaseDataset):
         latent_dir=None, 
         transform=None,
         pseudo_label_path: str = None,
+        prompt_dir: str = None,
     ):
         super().__init__(manifest, image_dir, resolution, latent_dir, transform)
         if pseudo_label_path is None:
@@ -161,6 +162,7 @@ class DRDataset(BaseDataset):
         self.pseudo_label = json.load(open(pseudo_label_path, "r"))
 
         self.pseudo_mapping = self._construct_pseudo_mapping()
+        self.prompt_dir = prompt_dir
 
     def _construct_pseudo_mapping(self):
         pseudo_mapping = {}

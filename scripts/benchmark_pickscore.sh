@@ -4,22 +4,24 @@ results=(
     # "main_results/partiprompts/sd15_ablate_dpo_50k_pseudo"
     # "main_results/partiprompts/sd15_ablate_dpo_100k_pseudo"
     # "main_results/partiprompts/sdxl_dr_updated_policy"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-200"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-300"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-400"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-500"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-600"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-700"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-800"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-900"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-1000"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-200"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-300"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-400"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-500"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-600"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-700"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-800"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-900"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-1000"
+    "main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-50"
+    "main_results/partiprompts/sd15_sft_5k_checkpoint-100"
 )
 
 for result in "${results[@]}"; do
     subfolder=$(echo "$result" | awk -F'/' '{print $3}')
     name="eval_results/main/pickscore/${subfolder}"
     echo "Evaluating $name"
-    CUDA_VISIBLE_DEVICES=0 python evaluator.py \
+    CUDA_VISIBLE_DEVICES=3 python evaluator.py \
         benchmark_type="pickscore" \
         image_dir=$result \
         prompt_dir="datasets/eval_prompts/partiprompts.json" \
