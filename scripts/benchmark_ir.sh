@@ -4,26 +4,34 @@ results=(
     # "main_results/partiprompts/sd15_ablate_dpo_50k_pseudo"
     # "main_results/partiprompts/sd15_ablate_dpo_100k_pseudo"
     # "main_results/partiprompts/sdxl_dr_updated_policy"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-200"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-300"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-400"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-500"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-600"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-700"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-800"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-900"
-    "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-1000"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-200"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-300"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-400"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-500"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-600"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-700"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-800"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-900"
+    # "main_results/partiprompts/sdxl_ablate_drdpo_20k_checkpoint-1000"
+    # "main_results/partiprompts/sd15_base"
+    # "main_results/partiprompts/sd15_dpo_25label"
+    # "main_results/partiprompts/sd15_dpo_100label"
+    # "main_results/partiprompts/sd15_dpo_base_labeled_and_pseudo_unlabeled_clip"
+    # "main_results/partiprompts/sd15_dpo_base_labeled_and_pseudo_unlabeled_qwen"
+    # "main_results/partiprompts/sd15_dr_ots_clip"   
+    "main_results/partiprompts/sd15_dr_ots_high_margin_pseudo_qwen"
+    # "main_results/partiprompts/sd15_sft_5k_checkpoint-100"
 )
 
 for result in "${results[@]}"; do
     subfolder=$(echo "$result" | awk -F'/' '{print $3}')
     name="eval_results/main/pickscore/${subfolder}"
     echo "Evaluating $name"
-    CUDA_VISIBLE_DEVICES=0 python evaluator.py \
-        benchmark_type="pickscore" \
+    CUDA_VISIBLE_DEVICES=2 python evaluator.py \
+        benchmark_type="ir" \
         image_dir=$result \
         prompt_dir="datasets/eval_prompts/partiprompts.json" \
-        name="eval_results/main/pickscore/sd15_ablate_dpo_${subfolder}" &
+        name="eval_results/main/ir/sd15_ablate_dpo_${subfolder}" &
 done
 
 # CUDA_VISIBLE_DEVICES=5 python evaluator.py \

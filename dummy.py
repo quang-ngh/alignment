@@ -109,17 +109,17 @@ from tqdm import tqdm
 #     )
 # # breakpoint()
 
-label = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json", "r"))
-pseudo_unlabeled = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_qwen.json", "r"))
-total = label + pseudo_unlabeled
-res = []
-for item in total:
-    res.append(item)
+# label = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json", "r"))
+# pseudo_unlabeled = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_qwen.json", "r"))
+# total = label + pseudo_unlabeled
+# res = []
+# for item in total:
+#     res.append(item)
 
-json.dump(res, open("datasets/manifest_high_margin/labeled_and_pseudo_unlabeled_qwen.json", "w"))
+# json.dump(res, open("datasets/manifest_high_margin/labeled_and_pseudo_unlabeled_qwen.json", "w"))
 
-# unlabel = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json", "r"))
-# pseudo_unlabel = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_labeled_clip.json", "r"))
+# unlabel = json.load(open("datasets/manifest_high_margin/from_20k_high_margin_25_75/labeled.json", "r"))
+# pseudo_unlabel = json.load(open("datasets/manifest_high_margin/from_20k_high_margin_25_75/pseudo_labeled_qwen.json", "r"))
 
 # res=[]
 # check = {}
@@ -133,6 +133,7 @@ json.dump(res, open("datasets/manifest_high_margin/labeled_and_pseudo_unlabeled_
 #     if pseudo_label != check[check_name]:
 #         res.append(item)
 # print(len(res) / len(pseudo_unlabel))
+
 # # sd = ""
 # # for item in res:
 # #     sd += f"{item['caption']}\n"
@@ -140,5 +141,50 @@ json.dump(res, open("datasets/manifest_high_margin/labeled_and_pseudo_unlabeled_
 # # with open("check_qwen.txt", "w") as f:
 # #     f.write(sd)
 
-    
+# n_samples = 1632
+# noise = torch.randn(n_samples, 4, 64, 64, device="cuda", generator=torch.Generator(device="cuda").manual_seed(999))
+# torch.save(noise.detach().cpu(), "datasets/partiprompts_noise_sd15.pt")
 
+# _dirs = {
+#     "./datasets/manifest_high_margin/from_10k_high_margin_25_75": "./datasets/manifest_high_margin/10k_labaled_pseudo_unlabled.json",
+#     "./datasets/manifest_high_margin/from_20k_high_margin_25_75": "./datasets/manifest_high_margin/20k_labaled_pseudo_unlabled.json",
+#     "./datasets/manifest_high_margin/from_50k_high_margin_25_75": "./datasets/manifest_high_margin/50k_labaled_pseudo_unlabled.json",
+#     "./datasets/manifest_high_margin/from_100k_high_margin_25_75": "./datasets/manifest_high_margin/100k_labaled_pseudo_unlabled.json",
+# }
+
+# for folder, save_path in _dirs.items():
+
+#     label = json.load(open(os.path.join(folder, "labeled.json"), "r"))
+#     pseudo_unlabeled = json.load(open(os.path.join(folder, "pseudo_unlabeled_qwen.json"), "r"))
+
+#     total = label + pseudo_unlabeled
+#     res = []
+#     for item in total:
+#         res.append(item)
+
+#     print(len(res))
+#     json.dump(res, open(save_path, "w"))
+
+    
+pseudo_of_label = "datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json"
+
+pseudo_of_unlabel_list = [
+    # "datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+    "datasets/manifest_high_margin/from_10k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+    # "datasets/manifest_high_margin/from_20k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+    "datasets/manifest_high_margin/from_50k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+    "datasets/manifest_high_margin/from_100k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+]
+label = json.load(open(pseudo_of_label, "r"))
+
+for pseudo_file in pseudo_of_unlabel_list:
+    unlabel = json.load(open(pseudo_file, "r"))
+    total = label + unlabel
+    res = []
+    for item in total:
+        res.append(item)
+    print(len(res))
+    
+    n_samples = "10k" if "10k" in pseudo_file else "20k" if "20k" in pseudo_file else "50k" if "50k" in pseudo_file else "100k"
+    basename = f"ablate_scale_pseudo_{n_samples}_pseudo_of_unlabel.json"
+    json.dump(res, open(os.path.join("datasets/manifest_dpo_ablate2", basename), "w"))

@@ -2,11 +2,11 @@ MODEL_PATH="/common/users/hn315/checkpoints/models--stabilityai--stable-diffusio
 LR=2e-8
 warmup_steps=5
 rule="1:200,0.1"
+MANIFEST="datasets/manifest_high_margin/5k_high_margin.json"
 lr_scheduler="piecewise_constant"
-MANIFEST="datasets/manifest_high_margin/10k_labaled_pseudo_unlabled.json"
-OUTPUT_DIR="training_runs/sdxl_dpo_fifa5k_high_margin_10k_ddp"
+OUTPUT_DIR="training_runs/sdxl_sft_5k_high_margin"
 
-accelerate launch --config-file "configs/train_sdxl_dpo_ddp.yaml" train_sdxl_dpo_base.py \
+accelerate launch --config-file "configs/sft_xl.yaml" train_sdxl_sft.py \
     --mixed_precision "bf16" \
     --pretrained_model_name_or_path $MODEL_PATH \
     --output_dir $OUTPUT_DIR \

@@ -152,6 +152,8 @@ def main(args):
     print(f"Using unet from {unet_path}")
 
     pipeline = get_sd_model(model_path=args.model_path, unet_path=unet_path, version=args.version)
+    pipeline.set_progress_bar_config(disable=True)
+
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
     print(f"Saved images to {args.save_dir}")
