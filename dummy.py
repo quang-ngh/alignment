@@ -4,7 +4,8 @@ import json
 import os
 import torch
 from tqdm import tqdm
-
+import random
+import shutil
 # # let's create ground truth binary data
 # np.random.seed(42)
 # ground_truth = np.random.randint(0, 2, size=(100000))
@@ -166,25 +167,96 @@ from tqdm import tqdm
 #     json.dump(res, open(save_path, "w"))
 
     
-pseudo_of_label = "datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json"
+# pseudo_of_label = "datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json"
 
-pseudo_of_unlabel_list = [
-    # "datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_qwen.json",
-    "datasets/manifest_high_margin/from_10k_high_margin_25_75/pseudo_unlabeled_qwen.json",
-    # "datasets/manifest_high_margin/from_20k_high_margin_25_75/pseudo_unlabeled_qwen.json",
-    "datasets/manifest_high_margin/from_50k_high_margin_25_75/pseudo_unlabeled_qwen.json",
-    "datasets/manifest_high_margin/from_100k_high_margin_25_75/pseudo_unlabeled_qwen.json",
-]
-label = json.load(open(pseudo_of_label, "r"))
+# pseudo_of_unlabel_list = [
+#     # "datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+#     "datasets/manifest_high_margin/from_10k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+#     # "datasets/manifest_high_margin/from_20k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+#     "datasets/manifest_high_margin/from_50k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+#     "datasets/manifest_high_margin/from_100k_high_margin_25_75/pseudo_unlabeled_qwen.json",
+# ]
+# label = json.load(open(pseudo_of_label, "r"))
 
-for pseudo_file in pseudo_of_unlabel_list:
-    unlabel = json.load(open(pseudo_file, "r"))
-    total = label + unlabel
-    res = []
-    for item in total:
-        res.append(item)
-    print(len(res))
+# for pseudo_file in pseudo_of_unlabel_list:
+#     unlabel = json.load(open(pseudo_file, "r"))
+#     total = label + unlabel
+#     res = []
+#     for item in total:
+#         res.append(item)
+#     print(len(res))
     
-    n_samples = "10k" if "10k" in pseudo_file else "20k" if "20k" in pseudo_file else "50k" if "50k" in pseudo_file else "100k"
-    basename = f"ablate_scale_pseudo_{n_samples}_pseudo_of_unlabel.json"
-    json.dump(res, open(os.path.join("datasets/manifest_dpo_ablate2", basename), "w"))
+#     n_samples = "10k" if "10k" in pseudo_file else "20k" if "20k" in pseudo_file else "50k" if "50k" in pseudo_file else "100k"
+#     basename = f"ablate_scale_pseudo_{n_samples}_pseudo_of_unlabel.json"
+#     json.dump(res, open(os.path.join("datasets/manifest_dpo_ablate2", basename), "w"))
+
+
+# n_images = 200
+# image_folders = {
+#     "sdxl_base": "main_results/partiprompts/sdxl_base",
+#     "sdxl_dpo_fifa5k": "main_results/partiprompts/sdxl_dpo_fifa5k_high_margin_100_v2",
+#     "sdxl_dpo_25_75": "main_results/partiprompts/sdxl_dpo_fifa5k_high_margin_25",
+#     "ours_25_75": "main_results/partiprompts/sdxl_dr_ots_high_margin_pseudo_qwen"
+# }
+
+# save_folder = "./main_results/qualitatives"
+# if not os.path.exists(save_folder):
+#     os.makedirs(save_folder)
+
+# paritprompt = "./datasets/eval_prompts/partiprompts.json"
+# objs = json.load(open(paritprompt))
+# breakpoint()
+# index = set([random.randint(0, len(objs) - 1) for _ in range(n_images)])
+
+# for key in image_folders.keys():
+#     save_dir = os.path.join(save_folder, key)
+#     if not os.path.exists(save_dir):
+#         os.makedirs(save_dir)
+
+# metadata = []
+# for id in index:
+#     prompt = objs[id]
+#     image_name = f"image_{id}.jpg"
+#     metadata.append({
+#         "prompt": prompt,
+#         "image_name": image_name,
+#     })
+
+#     for method, image_folder in image_folders.items():
+#         source_image = os.path.join(image_folder, image_name)
+#         dest_image = os.path.join(save_folder, method, image_name)
+#         shutil.copy(source_image, dest_image)
+# for key in image_folders:
+#     print(len(os.listdir(os.path.join(save_folder, key))))
+
+# f= open(os.path.join(save_folder, "metadata.json"), "w")
+# json.dump(metadata, f)
+# f.close()
+
+# N = [5000, 10000, 20000, 50000]
+# objs = json.load(open("datasets/manifest_hpdv2/100k.json", "r"))
+# for n in N:
+#     objs = objs[:n]
+#     if n == 5000: name = "5k"
+#     elif n == 10000: name = "10k"
+#     elif n == 20000: name = "20k"
+#     elif n == 50000: name = "50k"
+#     json.dump(objs, open(f"datasets/manifest_hpdv2/{name}_hpdv2.json", "w"))
+
+save_dir = "./datasets/hpdv2_5k/data/train"
+data_dir = "./datasets/hpdv2_sorted/data/train"
+if not os.path.isdir(save_dir):
+    os.makedirs(save_dir)
+objs = json.load(open("datasets/manifest_hpdv2/5k.json", "r"))
+for item in tqdm(objs):
+    image_0 = os.path.join(save_dir, item["image_0_basename"])
+    image_1 = os.path.join(save_dir, item["image_1_basename"])
+    if not os.path.exists(image_0):
+        print(f"Image {image_0} does not exist")
+    if not os.path.exists(image_1):
+        print(f"Image {image_1} does not exist")
+    # shutil.copy(image_0, os.path.join(save_dir, item["image_0_basename"]))
+    # shutil.copy(image_1, os.path.join(save_dir, item["image_1_basename"]))
+
+
+

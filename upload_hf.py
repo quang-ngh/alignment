@@ -58,11 +58,11 @@ def upload_folder_to_hf(
 
 
 if __name__ == "__main__":
-    local_folder = "training_runs/sd15_dpo_base_new_data/checkpoint-200"
-    repo_id = "quangngcs/alignment"
-    repo_type = "model"
+    local_folder = "zips"
+    repo_id = "quangngcs/hpdv2-5k"
+    repo_type = "dataset"
     commit_message = "Upload folder"
-    path_in_repo = "./ckpt_200"
+    path_in_repo = "data/train"
     token = None
     create_repo = False
     # Example: ignore caches and temp/log files

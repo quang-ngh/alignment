@@ -5,17 +5,23 @@ import concurrent.futures
 from datasets import load_dataset
 import json
 from tqdm import tqdm
-
+import random
 def process_example(args):
     idx, example, save_dir = args
     # print(example)
-    caption = example["original_prompt.txt"]
-    jpg_0 = example["jpg_0.jpg"]
-    jpg_1 = example["jpg_1.jpg"]
-    label_0 = int(float(example["label_0.txt"]))
-    label_1 = int(float(example["label_1.txt"]))
+    # exit()
+    # caption = example["original_prompt.txt"]
+    caption = example["caption"]
+    
+    jpg_0 = example["jpg_0"]
+    jpg_1 = example["jpg_1"]
+    # label_0 = int(float(example["label_0.txt"]))
+    # label_1 = int(float(example["label_1.txt"]))
 
-    refer_id = 0 if label_0 > label_1 else 1
+    refer_id = int(example["preference"])
+
+    label_0 = 1 if refer_id == 0 else 0
+    label_1 = 1 if refer_id == 1 else 0
     # image_0 = Image.open(io.BytesIO(jpg_0)).convert("RGB")
     # image_1 = Image.open(io.BytesIO(jpg_1)).convert("RGB")
     image_0 = jpg_0.convert("RGB")
@@ -60,7 +66,7 @@ def read_dataset(data_path, split="train", save_dir="/common/users/hn315/dataset
         for out in tqdm(executor.map(process_example, args_iter, chunksize=32)):
             res.append(out)
 
-    with open("./datasets/manifest/fifa_new.json", "w") as f:
+    with open("./datasets/manifest_hpdv2/100k.json", "w") as f:
         json.dump(res, f)
 
 
@@ -82,8 +88,23 @@ def split_semi_supervised_dataset_by_ratio_and_seed(path_to_manifest_json, save_
     return labeled_dataset, unlabeled_dataset
 
 if __name__ == "__main__":
-    read_dataset(
-        data_path="datasets/FiFA-new",
-        split="train",
-        save_dir="datasets/FiFA-new/data/",
-    )
+    # read_dataset(
+    #     data_path="/common/users/hn315/datasets/hpdv2_sorted",
+    #     split="train",
+    #     save_dir="./datasets/hpdv2_sorted/data/",
+    # )
+
+    json_map = {
+        "datasets/manifest_hpdv2/5k.json": "from_5k",
+        "datasets/manifest_hpdv2/10k.json": "from_10k",
+        "datasets/manifest_hpdv2/20k.json": "from_20k",
+        "datasets/manifest_hpdv2/50k.json": "from_50k",
+        "datasets/manifest_hpdv2/100k.json": "from_100k",
+    }
+
+    for key, value in json_map.items():
+        save_dir = f"datasets/manifest_hpdv2/{value}"
+        labeled_dataset, unlabeled_dataset = split_semi_supervised_dataset_by_ratio_and_seed(key, save_dir, labeled_ratio=0.25)
+        with open(os.path.join(save_dir, "labeled.json"), "w") as f:
+            json.dump(labeled_dataset, f)
+        f.close()
