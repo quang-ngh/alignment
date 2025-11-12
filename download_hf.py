@@ -40,14 +40,14 @@ def main(args):
 
     # repo_id = args.repo_id
     # local_dir = args.local_dir
-    repo_type = "model"  # "model", "dataset", or "space"
+    repo_type = "dataset"  # "model", "dataset", or "space"
     token = None  # Set to your HF token if needed for private repos
     revision = None  # Set to specific branch/tag/commit if needed
     
     # Download the repository
     download_hf_repo(
-        repo_id="drproduck/sdxl_5k_steps_100_faithful_ckpt_50",
-        local_dir="./checkpoints/khiem_sdxl",
+        repo_id="drproduck/hpdv2_fifa_100k_high_margin_sorted",
+        local_dir="/common/users/hn315/datasets/hpdv2_sorted",
         repo_type=repo_type,
     )
 
