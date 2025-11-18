@@ -43,7 +43,7 @@ if is_wandb_available():
     
 ## SDXL
 from transformers import AutoTokenizer, PretrainedConfig
-from src.dataset import BaseDataset, DubiousDataset
+from src.dataset import BaseDataset
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -621,6 +621,7 @@ def main():
     dataloader = torch.utils.data.DataLoader(
         dataset,
         shuffle=True,
+        drop_last=True,
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
