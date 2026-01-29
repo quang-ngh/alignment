@@ -1,15 +1,15 @@
 CKPT=/common/users/hn315/checkpoints/models--stabilityai--stable-diffusion-xl-base-1.0/snapshots/462165984030d82259a11f4367a4eed129e94a7b
 
-CUDA_VISIBLE_DEVICES=0 python generate.py \
-    gen_type="hpsv2" \
-    model_path=$CKPT \
-    unet_path="training_runs/sdxl_sft_5k_high_margin/checkpoint-100/unet" \
-    save_dir="./main_results/hpsv2/sdxl_sft_5k_high_margin_checkpoint-100" \
-    version="sdxl" \
-    noise_path="datasets/hpsv2_noise_xl.pt" \
-    guidance_scale=7.5 \
-    inference_steps=20 \
-    batch_size=8 &
+# CUDA_VISIBLE_DEVICES=0 python generate.py \
+#     gen_type="hpsv2" \
+#     model_path=$CKPT \
+#     unet_path="training_runs/sdxl_sft_5k_high_margin/checkpoint-100/unet" \
+#     save_dir="./main_results/hpsv2/sdxl_sft_5k_high_margin_checkpoint-100" \
+#     version="sdxl" \
+#     noise_path="datasets/hpsv2_noise_xl.pt" \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     batch_size=8 &
 
 # CUDA_VISIBLE_DEVICES=4 python generate.py \
 #     gen_type="hpsv2" \
@@ -117,36 +117,36 @@ CUDA_VISIBLE_DEVICES=0 python generate.py \
 
 #########
 TEST_PROMPTS="datasets/eval_prompts/partiprompts.json"
-NOISE_PATH="datasets/partiprompts_noise_sdxl.pt"
+# NOISE_PATH="datasets/partiprompts_noise_sdxl.pt"
 
-CUDA_VISIBLE_DEVICES=2 python generate.py \
-    gen_type="pickapic_test" \
-    model_path=$CKPT \
-    save_dir="main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-100" \
-    unet_path="training_runs/sdxl_sft_5k_high_margin/checkpoint-100/unet" \
-    version="sdxl" \
-    noise_path=$NOISE_PATH \
-    json_path=$TEST_PROMPTS \
-    batch_size=8 \
-    start_idx=0 \
-    guidance_scale=7.5 \
-    inference_steps=20 \
-    end_idx=800 &
+# CUDA_VISIBLE_DEVICES=0 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path=$CKPT \
+#     save_dir="main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-100" \
+#     unet_path="checkpoints/khiem_sdxl" \
+#     version="sdxl" \
+#     noise_path=$NOISE_PATH \
+#     json_path=$TEST_PROMPTS \
+#     batch_size=8 \
+#     start_idx=0 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=800 &
 
 
-CUDA_VISIBLE_DEVICES=3 python generate.py \
-    gen_type="pickapic_test" \
-    model_path=$CKPT \
-    save_dir="main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-100" \
-    unet_path="training_runs/sdxl_sft_5k_high_margin/checkpoint-100/unet" \
-    version="sdxl" \
-    noise_path=$NOISE_PATH \
-    json_path=$TEST_PROMPTS \
-    batch_size=8 \
-    start_idx=800 \
-    guidance_scale=7.5 \
-    inference_steps=20 \
-    end_idx=-1 &
+# CUDA_VISIBLE_DEVICES=1 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path=$CKPT \
+#     save_dir="main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-100" \
+#     unet_path="training_runs/sdxl_sft_5k_high_margin/checkpoint-100/unet" \
+#     version="sdxl" \
+#     noise_path=$NOISE_PATH \
+#     json_path=$TEST_PROMPTS \
+#     batch_size=8 \
+#     start_idx=800 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=-1 &
 
 
 # CUDA_VISIBLE_DEVICES=2 python generate.py \
@@ -266,3 +266,144 @@ CUDA_VISIBLE_DEVICES=3 python generate.py \
 #     guidance_scale=7.5
 
 
+MODELS=(
+    # "training_runs/sdxl_dpo_fifa_25"
+    # "training_runs/sdxl_dpo_fifa_100"
+    "training_runs/sdxl_dr_dpo_pseudo"
+    # "training_runs/sdxl_dpo_pseudo/checkpoint-50/unet"
+    # "training_runs/sdxl_dpo_pseudo"
+)
+
+SEEDS=(
+    # 28548 
+    # 43070 
+    # 63817 
+    # 95457 
+    # 62178 
+    # 76948 
+    # 96160 
+    # 51399 
+    # 9443 
+    # 48870 
+    29961 
+    64793 
+    20817 
+    24652 
+    33449
+)
+for model in "${MODELS[@]}"; do
+    model_name=$(echo "$model" | awk -F'/' '{print $2}')
+    save_dir="main_supp/partiprompts/${model_name}"
+    noise_path=""
+    for run in {1..5}
+    do
+        echo "Run $run/15"
+        seed=${SEEDS[$run-1]}
+        echo "Using seed $seed"
+        # CUDA_VISIBLE_DEVICES=2 python generate.py \
+        #     random_seed=$seed \
+        #     gen_type="pickapic_test" \
+        #     model_path=$CKPT \
+        #     save_dir=${save_dir} \
+        #     unet_path=$model \
+        #     version="sdxl" \
+        #     noise_path="" \
+        #     json_path=$TEST_PROMPTS \
+        #     batch_size=8 \
+        #     start_idx=0 \
+        #     guidance_scale=7.5 \
+        #     inference_steps=20 \
+        #     end_idx=200 &
+
+        # CUDA_VISIBLE_DEVICES=3 python generate.py \
+        #     random_seed=$seed \
+        #     gen_type="pickapic_test" \
+        #     model_path=$CKPT \
+        #     save_dir=${save_dir} \
+        #     unet_path=$model \
+        #     version="sdxl" \
+        #     noise_path="" \
+        #     json_path=$TEST_PROMPTS \
+        #     batch_size=8 \
+        #     start_idx=200 \
+        #     guidance_scale=7.5 \
+        #     inference_steps=20 \
+        #     end_idx=400 &
+
+        # CUDA_VISIBLE_DEVICES=2 python generate.py \
+        #     random_seed=$seed \
+        #     gen_type="pickapic_test" \
+        #     model_path=$CKPT \
+        #     save_dir=${save_dir} \
+        #     unet_path=$model \
+        #     version="sdxl" \
+        #     noise_path="" \
+        #     json_path=$TEST_PROMPTS \
+        #     batch_size=4 \
+        #     start_idx=400 \
+        #     guidance_scale=7.5 \
+        #     inference_steps=20 \
+        #     end_idx=600 &
+
+        # CUDA_VISIBLE_DEVICES=3 python generate.py \
+        #     random_seed=$seed \
+        #     gen_type="pickapic_test" \
+        #     model_path=$CKPT \
+        #     save_dir=${save_dir} \
+        #     unet_path=$model \
+        #     version="sdxl" \
+        #     noise_path="" \
+        #     json_path=$TEST_PROMPTS \
+        #     batch_size=4 \
+        #     start_idx=600 \
+        #     guidance_scale=7.5 \
+        #     inference_steps=20 \
+        #     end_idx=800 &
+
+        CUDA_VISIBLE_DEVICES=0 python generate.py \
+            random_seed=$seed \
+            gen_type="pickapic_test" \
+            model_path=$CKPT \
+            save_dir=${save_dir} \
+            unet_path=$model \
+            version="sdxl" \
+            noise_path="" \
+            json_path=$TEST_PROMPTS \
+            batch_size=4 \
+            start_idx=800 \
+            guidance_scale=7.5 \
+            inference_steps=20 \
+            end_idx=1000 &
+
+        CUDA_VISIBLE_DEVICES=1 python generate.py \
+            random_seed=$seed \
+            gen_type="pickapic_test" \
+            model_path=$CKPT \
+            save_dir=${save_dir} \
+            unet_path=$model \
+            version="sdxl" \
+            noise_path="" \
+            json_path=$TEST_PROMPTS \
+            batch_size=4 \
+            start_idx=1000 \
+            guidance_scale=7.5 \
+            inference_steps=20 \
+            end_idx=1200 &
+
+        # CUDA_VISIBLE_DEVICES=6 python generate.py \
+        #     random_seed=$seed \
+        #     gen_type="pickapic_test" \
+        #     model_path=$CKPT \
+        #     save_dir=${save_dir} \
+        #     unet_path=$model \
+        #     version="sdxl" \
+        #     noise_path="" \
+        #     json_path=$TEST_PROMPTS \
+        #     batch_size=4 \
+        #     start_idx=1200 \
+        #     guidance_scale=7.5 \
+        #     inference_steps=20 \
+        #     end_idx=-1 &
+        wait
+    done
+done

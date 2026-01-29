@@ -6,6 +6,9 @@ import torch
 from tqdm import tqdm
 import random
 import shutil
+import random
+from omegaconf import OmegaConf
+
 # # let's create ground truth binary data
 # np.random.seed(42)
 # ground_truth = np.random.randint(0, 2, size=(100000))
@@ -119,8 +122,8 @@ import shutil
 
 # json.dump(res, open("datasets/manifest_high_margin/labeled_and_pseudo_unlabeled_qwen.json", "w"))
 
-# unlabel = json.load(open("datasets/manifest_high_margin/from_20k_high_margin_25_75/labeled.json", "r"))
-# pseudo_unlabel = json.load(open("datasets/manifest_high_margin/from_20k_high_margin_25_75/pseudo_labeled_qwen.json", "r"))
+# unlabel = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/unlabeled.json", "r"))
+# pseudo_unlabel = json.load(open("datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_flip80.json", "r"))
 
 # res=[]
 # check = {}
@@ -131,7 +134,7 @@ import shutil
 #     check_name = item["image_0_basename"]
 
 #     pseudo_label = float(item["refer_id"])
-#     if pseudo_label != check[check_name]:
+#     if pseudo_label == check[check_name]:
 #         res.append(item)
 # print(len(res) / len(pseudo_unlabel))
 
@@ -243,20 +246,211 @@ import shutil
 #     elif n == 50000: name = "50k"
 #     json.dump(objs, open(f"datasets/manifest_hpdv2/{name}_hpdv2.json", "w"))
 
-save_dir = "./datasets/hpdv2_5k/data/train"
-data_dir = "./datasets/hpdv2_sorted/data/train"
-if not os.path.isdir(save_dir):
-    os.makedirs(save_dir)
-objs = json.load(open("datasets/manifest_hpdv2/5k.json", "r"))
-for item in tqdm(objs):
-    image_0 = os.path.join(save_dir, item["image_0_basename"])
-    image_1 = os.path.join(save_dir, item["image_1_basename"])
-    if not os.path.exists(image_0):
-        print(f"Image {image_0} does not exist")
-    if not os.path.exists(image_1):
-        print(f"Image {image_1} does not exist")
+# save_dir = "./datasets/hpdv2_5k/data/train"
+# data_dir = "./datasets/hpdv2_sorted/data/train"
+# if not os.path.isdir(save_dir):
+#     os.makedirs(save_dir)
+# objs = json.load(open("datasets/manifest_hpdv2/5k.json", "r"))
+# for item in tqdm(objs):
+#     image_0 = os.path.join(save_dir, item["image_0_basename"])
+#     image_1 = os.path.join(save_dir, item["image_1_basename"])
+#     if not os.path.exists(image_0):
+#         print(f"Image {image_0} does not exist")
+#     if not os.path.exists(image_1):
+#         print(f"Image {image_1} does not exist")
     # shutil.copy(image_0, os.path.join(save_dir, item["image_0_basename"]))
     # shutil.copy(image_1, os.path.join(save_dir, item["image_1_basename"]))
 
+# length = 1632
+# check_folders = [
+#     "main_supp/partiprompts/sdxl_dpo_fifa_25",
+#     "main_supp/partiprompts/sdxl_dpo_fifa_100",
+#     "main_supp/partiprompts/sdxl_dr_dpo_pseudo",
+# ]
+
+# for folder in check_folders:
+#     for subdoler in os.listdir(folder):
+#         if len(os.listdir(os.path.join(folder, subdoler))) != length:
+#             print(f"Folder {os.path.join(folder, subdoler)} has {len(os.listdir(os.path.join(folder, subdoler)))} images, expected {length}")
+#         else:
+#             print(f"Folder contains {length} images -- Passed")
 
 
+
+def flip_refer_id_portion(input_manifest, output_manifest, flip_portion=0.1, seed=42):
+    """
+    Flips the refer_id for a portion of samples in the manifest file.
+
+    Args:
+        input_manifest (str): Path to the input json manifest.
+        output_manifest (str): Path to save the manifest with flipped refer_ids.
+        flip_portion (float): Portion of items to flip (between 0 and 1).
+        seed (int): Random seed for reproducibility.
+    """
+    assert 0.0 <= flip_portion <= 1.0, "flip_portion should be in [0, 1]"
+
+    with open(input_manifest, "r") as f:
+        data = json.load(f)
+
+    num_samples = len(data)
+    num_to_flip = int(num_samples * flip_portion)
+    random.seed(seed)
+    flip_indices = set(random.sample(range(num_samples), num_to_flip))
+
+    for idx, item in enumerate(data):
+        refer_id = item.get("refer_id", None)
+        # supports both string and numeric refer_id
+        try:
+            r = int(float(refer_id))
+        except Exception:
+            continue  # skip if no refer_id or not convertible
+        if idx in flip_indices:
+            flipped = 1 if r == 0 else 0
+            # Keep the type format as in the original (string/float)
+            if isinstance(refer_id, str):
+                item["refer_id"] = str(float(flipped))
+            elif isinstance(refer_id, (int, float)):
+                item["refer_id"] = float(flipped)
+            else:
+                item["refer_id"] = flipped  # fallback
+
+    with open(output_manifest, "w") as f:
+        json.dump(data, f, indent=2)
+
+for i in [20]:
+    save_dir = f"datasets/rebuttal/noise_flip/{i}_percent"
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    flip_refer_id_portion(
+        input_manifest="datasets/manifest_high_margin/from_5k_high_margin_25_75/unlabeled.json",
+        output_manifest=os.path.join(save_dir, f"pseudo_unlabeled.json"),
+        flip_portion=i/100,  # 10% flip
+        seed=42
+    )
+# args = OmegaConf.from_cli()
+
+# base_labeled = "datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json"
+# base_unlabeled = "datasets/manifest_high_margin/from_5k_high_margin_25_75/unlabeled.json"
+# base_pseudo_labeled = "datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_labeled_qwen.json"
+# base_pseudo_unlabeled = "datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_unlabeled_qwen.json"
+
+# save_dir = "datasets/rebuttal/small_synthetic_portion/5_percent"
+
+
+# labeled_list = json.load(open(base_labeled, "r"))
+# unlabeled_list = json.load(open(base_unlabeled, "r"))
+# pseudo_labeled_list = json.load(open(base_pseudo_labeled, "r"))
+# pseudo_unlabeled_list = json.load(open(base_pseudo_unlabeled, "r"))
+
+
+# new_labeled = []
+# new_pseudo_labeled = []
+# new_unlabeled = []
+# new_pseudo_unlabeled = []
+
+#   Small portion of synthetic labels
+
+
+# n_labeled = args.num_labels
+# save_dir = os.path.join(save_dir, f"{n_labeled}_{5000-n_labeled}")
+
+# if not os.path.exists(save_dir):
+#     os.makedirs(save_dir)
+
+# # Get the label and pseudo label for labeled
+# for i,item in enumerate(labeled_list):
+#     new_labeled.append(item)
+#     new_pseudo_labeled.append(pseudo_labeled_list[i])
+
+# for i in range(len(labeled_list) * scale):
+#     new_labeled.append(unlabeled_list[i])
+#     new_pseudo_labeled.append(pseudo_unlabeled_list[i])
+
+# for i in range(len(labeled_list) * scale, len(unlabeled_list)):
+#     new_unlabeled.append(unlabeled_list[i])
+#     new_pseudo_unlabeled.append(pseudo_unlabeled_list[i])
+
+# for i, item in enumerate(labeled_list[:n_labeled]):
+#     new_labeled.append(item)
+#     new_pseudo_labeled.append(pseudo_labeled_list[i])
+
+# for item in unlabeled_list:
+#     new_unlabeled.append(item)
+# for item in pseudo_unlabeled_list:
+#     new_pseudo_unlabeled.append(item)
+
+# for item in labeled_list[n_labeled:]:
+#     new_unlabeled.append(item)
+# for item in pseudo_labeled_list[n_labeled:]:
+#     new_pseudo_unlabeled.append(item)
+
+# print(len(new_labeled), len(new_unlabeled))
+# print(len(new_pseudo_labeled), len(new_pseudo_unlabeled))
+
+# json.dump(new_labeled, open(os.path.join(save_dir, "labeled.json"), "w"))
+# json.dump(new_pseudo_labeled, open(os.path.join(save_dir, "pseudo_labeled.json"), "w"))
+# json.dump(new_unlabeled, open(os.path.join(save_dir, "unlabeled.json"), "w"))
+# json.dump(new_pseudo_unlabeled, open(os.path.join(save_dir, "pseudo_unlabeled.json"), "w"))
+
+
+# base_10k_labeled = "datasets/manifest_high_margin/from_10k_high_margin_25_75/labeled.json"
+# base_10k_unlabeled = "datasets/manifest_high_margin/from_10k_high_margin_25_75/unlabeled.json"
+# base_10k_pseudo_labeled = "datasets/manifest_high_margin/from_10k_high_margin_25_75/pseudo_labeled_qwen.json"
+# base_10k_pseudo_unlabeled = "datasets/manifest_high_margin/from_10k_high_margin_25_75/pseudo_unlabeled_qwen.json"
+
+# list_10k_labeled = json.load(open(base_10k_labeled, "r"))
+# list_10k_unlabeled = json.load(open(base_10k_unlabeled, "r"))
+# list_10k_pseudo_labeled = json.load(open(base_10k_pseudo_labeled, "r"))
+# list_10k_pseudo_unlabeled = json.load(open(base_10k_pseudo_unlabeled, "r"))
+
+# percents = [0.05, 0.1, 0.2]
+# base_save_dir = "datasets/rebuttal/small_synthetic_portion"
+
+# pre_total = len(labeled_list) + len(unlabeled_list)
+# for percent in percents:
+#     save_dir = os.path.join(base_save_dir, f"{percent}_percent")
+#     if not os.path.exists(save_dir):
+#         os.makedirs(save_dir)
+    
+#     n_more_samples = int(percent * pre_total)
+#     print(n_more_samples)
+
+#     labeled_list.extend(list_10k_labeled[pre_total:pre_total + n_more_samples])
+#     pseudo_labeled_list.extend(list_10k_pseudo_labeled[pre_total:pre_total + n_more_samples])
+#     unlabeled_list.extend(list_10k_unlabeled[pre_total:pre_total + n_more_samples])
+#     pseudo_unlabeled_list.extend(list_10k_pseudo_unlabeled[pre_total:pre_total + n_more_samples])
+
+#     print(len(labeled_list), len(pseudo_labeled_list), len(unlabeled_list), len(pseudo_unlabeled_list)) 
+
+#     json.dump(labeled_list, open(os.path.join(save_dir, "labeled.json"), "w"))
+#     json.dump(pseudo_labeled_list, open(os.path.join(save_dir, "pseudo_labeled.json"), "w"))
+#     json.dump(unlabeled_list, open(os.path.join(save_dir, "unlabeled.json"), "w"))
+#     json.dump(pseudo_unlabeled_list, open(os.path.join(save_dir, "pseudo_unlabeled.json"), "w"))
+
+# labels ='datasets/rebuttal/increase_labeled_size/500_4500/labeled.json'
+# pseudo ='datasets/rebuttal/increase_labeled_size/500_4500/pseudo_unlabeled.json'
+# dpo ='datasets/rebuttal/increase_labeled_size/500_4500/dpo.json'
+
+# label_json = json.load(open(labels, "r"))
+# pseudo_json = json.load(open(pseudo, "r"))
+
+# print(len(label_json), len(pseudo_json))
+
+
+# json.dump(label_json + pseudo_json, open(dpo, "w"))
+
+label_set = json.load(open("datasets/manifest_5k_animated/5k_25_75/labeled.json", "r"))
+pseudo_un_set = json.load(open("datasets/manifest_5k_animated/5k_25_75/pseudo_unlabeled_qwen.json", "r"))
+# for percent in [10, 20, 30, 40, 50]:
+#     save_dir = f"datasets/rebuttal/noise_flip/{percent}_percent"
+#     if not os.path.exists(save_dir):
+#         os.makedirs(save_dir)
+    
+#     flip_unlabeled = json.load(open(f"datasets/rebuttal/noise_flip/{percent}_percent/pseudo_unlabeled.json", "r"))
+#     dpo_set = label_set + flip_unlabeled
+#     print(len(dpo_set))
+#     json.dump(dpo_set, open(os.path.join(save_dir, "dpo_concat.json"), "w"))
+
+dpo_set = label_set + pseudo_un_set
+print(len(dpo_set))
+json.dump(dpo_set, open("datasets/manifest_5k_animated/5k_25_75/dpo_concat.json", "w"))

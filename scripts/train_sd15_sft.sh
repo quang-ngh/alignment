@@ -6,9 +6,9 @@ lr_scheduler="piecewise_constant"
 # MANIFEST="datasets/manifest_high_margin/100k_labaled_pseudo_unlabled.json"
 # CONFIG="configs/ablation/100k.yaml"
 # OUTPUT_DIR="/common/users/hn315/alignment/ablate_dpo_100k_pseudo"
-MANIFEST="datasets/manifest_high_margin/5k_high_margin.json"
+MANIFEST="datasets/manifest_hpdv2/5k_last.json"
 CONFIG="configs/sft.yaml"
-OUTPUT_DIR="/common/users/hn315/alignment/sft_5k_high_margin"
+OUTPUT_DIR="/common/users/hn315/alignment/sd15_sft_hpsv2_5k_last"
 
 
 accelerate launch --config-file $CONFIG train_sd15_sft.py \
@@ -16,7 +16,7 @@ accelerate launch --config-file $CONFIG train_sd15_sft.py \
     --pretrained_model_name_or_path "./checkpoints/sd15" \
     --output_dir $OUTPUT_DIR \
     --manifest $MANIFEST \
-    --train_data_dir "datasets/FiFA-100k-sorted/data/train" \
+    --train_data_dir "datasets/hpdv2_sorted/data/train" \
     --train_batch_size 8 \
     --dataloader_num_workers 16 \
     --gradient_accumulation_steps 8 \

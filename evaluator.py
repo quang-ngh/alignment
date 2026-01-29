@@ -8,6 +8,8 @@ import json
 from tqdm import tqdm
 import csv
 from fifa.utils.aes_utils import Selector as AESSelector
+from fifa.utils.hps_utils import Selector as HPSSelector
+
 from torchvision.transforms import ToTensor
 from torchmetrics.multimodal.clip_score import CLIPScore
 # Types
@@ -18,18 +20,30 @@ _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # ---------- HPSv2 ----------
-@torch.inference_mode()
-@torch.amp.autocast(device_type=_DEVICE, dtype=torch.float32)
+_hpsselector_model = None
+def _load_hpsselector():
+    global _hpsselector_model
+    if _hpsselector_model is not None:
+        return
+    _hpsselector_model = HPSSelector(device=_DEVICE)
+
+
 def evaluate_hpsv2(
     image: ImageLike,
     prompt: str,
     hps_version: str = "v2.1",
 ) -> float:
-    """Return HPSv2 score for a single image and prompt."""
-    scores = hpsv2.score(image, prompt, hps_version=hps_version)
-    if not scores:
-        raise RuntimeError("HPSv2 returned no scores.")
-    return float(scores[0])
+    """Return HPSv2 score for a single image and prompt using FIFA Selector."""
+    _load_hpsselector()
+
+    assert _hpsselector_model is not None
+
+    pil_img = image if isinstance(image, Image.Image) else Image.open(image)
+
+    with torch.no_grad():
+        score = _hpsselector_model.score(pil_img, prompt)
+    
+    return float(score[0])
 
 
 # ---------- PickScore ----------
@@ -396,6 +410,17 @@ if __name__ == "__main__":
             prompt_path=args.prompt_dir,
             name=args.name,
         )
+    elif args.benchmark_type == "pickscore_folder":
+        for subfolder in os.listdir(args.image_dir):
+            print(f"Evaluating {subfolder}")
+            if os.path.exists(os.path.join(args.name, subfolder)):
+                print(f"Skipping {subfolder} because it already exists")
+                continue
+            benchmarking_pickscore(
+                base_image_dir=os.path.join(args.image_dir, subfolder),
+                prompt_path=args.prompt_dir,
+                name=os.path.join(args.name, subfolder),
+            )
     elif args.benchmark_type == "aescore":
         benchmarking_aescore(
             base_image_dir=args.image_dir,

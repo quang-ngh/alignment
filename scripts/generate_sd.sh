@@ -9,58 +9,62 @@
 # UNET_DRDPO_AB10k="training_runs/sd15_dr_ots_1k2_98k8_qwen/checkpoint-100/unet"
 # SAVE_DIR="./main_results/partiprompts/sd15_ablate2_drdpo_100k_pseudo"
 
-# CUDA_VISIBLE_DEVICES=0 python generate.py \
+# UNET="training_runs/sd15_dr_ots_hpsv2_5k_last_qwen/checkpoint-100/unet"
+# UNET_DRDPO_KHIEM=""
+
+
+CUDA_VISIBLE_DEVICES=6 python generate.py \
+    gen_type="pickapic_test" \
+    model_path="checkpoints/sd15" \
+    unet_path="training_runs/sd15_dpo_flip80_pseudo/checkpoint-100/unet" \
+    save_dir="./main_results/partiprompts/sd15_dpo_flip80_pseudo_ckpt100" \
+    version="sd15" \
+    noise_path="datasets/partiprompts_noise_sd15.pt" \
+    json_path="datasets/eval_prompts/partiprompts.json" \
+    batch_size=8 \
+    start_idx=0 \
+    guidance_scale=7.5 \
+    inference_steps=20 \
+    end_idx=800 &
+
+CUDA_VISIBLE_DEVICES=7 python generate.py \
+    gen_type="pickapic_test" \
+    model_path="checkpoints/sd15" \
+    unet_path="training_runs/sd15_dpo_flip80_pseudo/checkpoint-100/unet" \
+    save_dir="./main_results/partiprompts/sd15_dpo_flip80_pseudo_ckpt100" \
+    version="sd15" \
+    noise_path="datasets/partiprompts_noise_sd15.pt" \
+    json_path="datasets/eval_prompts/partiprompts.json" \
+    batch_size=8 \
+    start_idx=800 \
+    guidance_scale=7.5 \
+    inference_steps=20 \
+    end_idx=-1 &
+
+# CUDA_VISIBLE_DEVICES=2 python generate.py \
 #     gen_type="pickapic_test" \
 #     model_path="checkpoints/sd15" \
-#     unet_path="training_runs/sd15_sft_5k/checkpoint-100/unet" \
-#     save_dir="./main_results/partiprompts/sd15_sft_5k_checkpoint-100" \
+#     unet_path=$UNET_DRDPO_KHIEM \
+#     save_dir="./main_results/partiprompts/sd15_drdpo_25_75_khiem" \
 #     version="sd15" \
 #     noise_path="datasets/partiprompts_noise_sd15.pt" \
 #     json_path="datasets/eval_prompts/partiprompts.json" \
 #     batch_size=8 \
-#     start_idx=0 \
-#     guidance_scale=7.5 \
-#     inference_steps=20 \
-#     end_idx=800 &
-
-# CUDA_VISIBLE_DEVICES=1 python generate.py \
-#     gen_type="pickapic_test" \
-#     model_path="checkpoints/sd15" \
-#     unet_path="training_runs/sd15_sft_5k/checkpoint-100/unet" \
-#     save_dir="./main_results/partiprompts/sd15_sft_5k_checkpoint-100" \
-#     version="sd15" \
-#     noise_path="datasets/partiprompts_noise_sd15.pt" \
-#     json_path="datasets/eval_prompts/partiprompts.json" \
-#     batch_size=20 \
 #     start_idx=800 \
 #     guidance_scale=7.5 \
 #     inference_steps=20 \
-#     end_idx=-1 &
+#     end_idx=1200 &
 
-# CUDA_VISIBLE_DEVICES=4 python generate.py \
+# CUDA_VISIBLE_DEVICES=3 python generate.py \
 #     gen_type="pickapic_test" \
 #     model_path="checkpoints/sd15" \
-#     unet_path="training_runs/sd15_test_sota_5k_label_5k_unlabel_v2/checkpoint-600/unet" \
-#     save_dir="./main_results/partiprompts/sd15_test_sota_5k_label_5k_unlabel_v2_checkpoint-600" \
+#     unet_path=$UNET_DRDPO_KHIEM \
+#     save_dir="./main_results/partiprompts/sd15_drdpo_25_75_khiem" \
 #     version="sd15" \
 #     noise_path="datasets/partiprompts_noise_sd15.pt" \
 #     json_path="datasets/eval_prompts/partiprompts.json" \
 #     batch_size=8 \
-#     start_idx=0 \
-#     guidance_scale=7.5 \
-#     inference_steps=20 \
-#     end_idx=800 &
-
-# CUDA_VISIBLE_DEVICES=5 python generate.py \
-#     gen_type="pickapic_test" \
-#     model_path="checkpoints/sd15" \
-#     unet_path="training_runs/sd15_test_sota_5k_label_5k_unlabel_v2/checkpoint-600/unet" \
-#     save_dir="./main_results/partiprompts/sd15_test_sota_5k_label_5k_unlabel_v2_checkpoint-600" \
-#     version="sd15" \
-#     noise_path="datasets/partiprompts_noise_sd15.pt" \
-#     json_path="datasets/eval_prompts/partiprompts.json" \
-#     batch_size=20 \
-#     start_idx=800 \
+#     start_idx=1200 \
 #     guidance_scale=7.5 \
 #     inference_steps=20 \
 #     end_idx=-1 &
@@ -358,7 +362,7 @@
 
 
 ############# HPSv2
-MODELS="checkpoints/sd15"
+# MODELS="checkpoints/sd15"
 # UNET_DR_DPO_QWEN="training_runs/sd15_dr_ots_high_margin_pseudo_qwen/checkpoint-100/unet"
 # UNET_DR_DPO_CLIP="training_runs/sd15_dr_ots_high_margin_pseudo_clip/checkpoint-200/unet"
 # UNET_ABLATE_100="training_runs/ablate_100k/checkpoint-100/unet"
@@ -371,29 +375,51 @@ MODELS="checkpoints/sd15"
 # SAVE_DIR_ABLATE_100="./main_results/hpsv2/sd15_dr_ots_high_margin_pseudo_ablate_100"
 
 
-NOISE_PATH="datasets/hpsv2_noise.pt"
+# NOISE_PATH="datasets/hpsv2_noise.pt"
 
-CUDA_VISIBLE_DEVICES=2 python generate.py \
-    gen_type="hpsv2" \
-    model_path=$MODELS \
-    unet_path="training_runs/sd15_sft_5k/checkpoint-100/unet" \
-    version="sd15" \
-    save_dir="./main_results/hpsv2/sd15_sft_5k_checkpoint-100" \
-    noise_path=$NOISE_PATH \
-    batch_size=20 \
-    inference_steps=20 \
-    guidance_scale=7.5 &
-
-# CUDA_VISIBLE_DEVICES=2 python generate.py \
+# CUDA_VISIBLE_DEVICES=7 python generate.py \
 #     gen_type="hpsv2" \
 #     model_path=$MODELS \
-#     unet_path=$UNET_DPO_CLIP \
+#     unet_path="training_runs/sd15_dpo_flip80_pseudo/checkpoint-100/unet" \
 #     version="sd15" \
-#     save_dir=$SAVE_DIR_CLIP \
+#     save_dir="./main_results/hpsv2/sd15_dpo_flip80_pseudo_ckpt100" \
 #     noise_path=$NOISE_PATH \
 #     batch_size=20 \
 #     inference_steps=20 \
 #     guidance_scale=7.5 &
+
+# CUDA_VISIBLE_DEVICES=3 python generate.py \
+#     gen_type="hpsv2" \
+#     model_path=$MODELS \
+#     unet_path="training_runs/sd15_dr_dpo_pseudo_smolvlm/checkpoint-100/unet" \
+#     version="sd15" \
+#     save_dir="./main_results/hpsv2/sd15_dr_dpo_pseudo_smolvlm_ckpt100" \
+#     noise_path=$NOISE_PATH \
+#     batch_size=20 \
+#     inference_steps=20 \
+#     guidance_scale=7.5 &
+
+# CUDA_VISIBLE_DEVICES=6 python generate.py \
+#     gen_type="hpsv2" \
+#     model_path=$MODELS \
+#     unet_path="training_runs/sd15_dr_dpo_98k_unl/checkpoint-100/unet" \
+#     version="sd15" \
+#     save_dir="./main_results/hpsv2/sd15_dr_dpo_98k_unl" \
+#     noise_path=$NOISE_PATH \
+#     batch_size=20 \
+#     inference_steps=20 \
+#     guidance_scale=7.5 &
+
+# CUDA_VISIBLE_DEVICES=7 python generate.py \
+#     gen_type="hpsv2" \
+#     model_path=$MODELS \
+#     unet_path="training_runs/sd15_dpo_8k_unl" \
+#     version="sd15" \
+#     save_dir="./main_results/hpsv2/sd15_dpo_8k_unl" \
+#     noise_path=$NOISE_PATH \
+#     batch_size=20 \
+#     inference_steps=20 \
+#     guidance_scale=7.5
 
 # models=(
 #     # "training_runs/ablate_dpo_10k_pseudo/checkpoint-100/unet"
@@ -466,3 +492,61 @@ CUDA_VISIBLE_DEVICES=2 python generate.py \
 #         end_idx=-1 &
 # done 
 # fi
+
+
+# CUDA_VISIBLE_DEVICES=0 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path="checkpoints/sd15" \
+#     unet_path="checkpoints/sd15_dpo_hpdv2_1k25" \
+#     save_dir="./main_results/partiprompts/sd15_dpo_hpdv2_1k25_khiem" \
+#     version="sd15" \
+#     noise_path="datasets/partiprompts_noise_sd15.pt" \
+#     json_path="datasets/eval_prompts/partiprompts.json" \
+#     batch_size=8 \
+#     start_idx=0 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=-1 &
+
+# CUDA_VISIBLE_DEVICES=1 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path="checkpoints/sd15" \
+#     unet_path="checkpoints/sd15_dpo_hpdv2_5k" \
+#     save_dir="./main_results/partiprompts/sd15_dpo_hpdv2_5k_khiem" \
+#     version="sd15" \
+#     noise_path="datasets/partiprompts_noise_sd15.pt" \
+#     json_path="datasets/eval_prompts/partiprompts.json" \
+#     batch_size=8 \
+#     start_idx=0 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=-1 &
+
+# CUDA_VISIBLE_DEVICES=2 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path="checkpoints/sd15" \
+#     unet_path="checkpoints/sd15_dpo_pseudo_hpdv2" \
+#     save_dir="./main_results/partiprompts/sd15_dpo_pseudo_hpdv2_khiem" \
+#     version="sd15" \
+#     noise_path="datasets/partiprompts_noise_sd15.pt" \
+#     json_path="datasets/eval_prompts/partiprompts.json" \
+#     batch_size=8 \
+#     start_idx=0 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=-1 &
+
+# CUDA_VISIBLE_DEVICES=3 python generate.py \
+#     gen_type="pickapic_test" \
+#     model_path="checkpoints/sd15" \
+#     unet_path="checkpoints/sd15_dr_pseudo_hpdv2" \
+#     save_dir="./main_results/partiprompts/sd15_dr_pseudo_hpdv2_khiem" \
+#     version="sd15" \
+#     noise_path="datasets/partiprompts_noise_sd15.pt" \
+#     json_path="datasets/eval_prompts/partiprompts.json" \
+#     batch_size=8 \
+#     start_idx=0 \
+#     guidance_scale=7.5 \
+#     inference_steps=20 \
+#     end_idx=-1 &
+wait

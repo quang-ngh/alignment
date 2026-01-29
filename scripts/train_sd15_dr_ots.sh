@@ -3,14 +3,15 @@ warmup_steps=10
 rule="1:200,0.25:400,0.1"
 lr_scheduler="piecewise_constant"
 
-LABEL_MANIFEST="datasets/manifest_high_margin/sota_test/5k_label.json"
-LABEL_PSEUDO_MANIFEST="datasets/manifest_high_margin/sota_test/5k_pseudo_of_label.json"
-UNLABEL_MANIFEST="datasets/manifest_high_margin/sota_test/5k_unlabel.json"
-UNLABEL_PSEUDO_MANIFEST="datasets/manifest_high_margin/sota_test/5k_pseudo_of_unlabel.json"
+LABEL_MANIFEST="datasets/manifest_high_margin/from_5k_high_margin_25_75/labeled.json"
+LABEL_PSEUDO_MANIFEST="datasets/manifest_high_margin/from_5k_high_margin_25_75/pseudo_labeled_qwen.json"
+UNLABEL_MANIFEST="datasets/manifest_high_margin/from_5k_high_margin_25_75/unlabeled.json"
+UNLABEL_PSEUDO_MANIFEST="datasets/rebuttal/noise_flip/20_percent/pseudo_unlabeled.json"
 
-SAVE_DIR="training_runs/sd15_test_sota_5k_label_5k_unlabel_v2"
+SAVE_DIR="/common/users/hn315/training_runs/rebuttal_cvpr/noise_flip/20_percent_fix"
+TRAIN_DATA_DIR="datasets/FiFA-100k-sorted/data/train"
 
-accelerate launch --config-file "configs/ablation/20k.yaml" train_sd15_dpo_dr_ots.py \
+accelerate launch --config-file "configs/sft.yaml" train_sd15_dpo_dr_ots.py \
     --mixed_precision "bf16" \
     --pretrained_model_name_or_path "./checkpoints/sd15" \
     --output_dir $SAVE_DIR \
@@ -18,8 +19,8 @@ accelerate launch --config-file "configs/ablation/20k.yaml" train_sd15_dpo_dr_ot
     --unlabeled_manifest $UNLABEL_MANIFEST \
     --labeled_pseudo_manifest $LABEL_PSEUDO_MANIFEST \
     --unlabeled_pseudo_manifest $UNLABEL_PSEUDO_MANIFEST \
-    --train_data_dir "datasets/FiFA-100k-sorted/data/train" \
-    --train_batch_size 4 \
+    --train_data_dir $TRAIN_DATA_DIR \
+    --train_batch_size 8 \
     --dataloader_num_workers 16 \
     --gradient_accumulation_steps 8 \
     --max_train_steps 1000 \
@@ -32,7 +33,7 @@ accelerate launch --config-file "configs/ablation/20k.yaml" train_sd15_dpo_dr_ot
     --checkpointing_steps 100 \
     --gradient_checkpointing \
     --report_to "wandb" \
-    --tracker_project_name "ablate_scale_pseudo" \
+    --tracker_project_name "rebuttal-cvpr" \
     --mu 1.0 \
     --scale_lr \
     --curriculum none \

@@ -3,8 +3,8 @@ LR=2e-8
 warmup_steps=5
 rule="1:200,0.1"
 lr_scheduler="piecewise_constant"
-MANIFEST="datasets/manifest_high_margin/10k_labaled_pseudo_unlabled.json"
-OUTPUT_DIR="training_runs/sdxl_dpo_fifa5k_high_margin_10k_ddp"
+MANIFEST="datasets/manifest_high_margin/5k_labeled_and_pseudo_unlabeled_qwen.json"
+OUTPUT_DIR="training_runs/sdxl_dpo_pseudo"
 
 accelerate launch --config-file "configs/train_sdxl_dpo_ddp.yaml" train_sdxl_dpo_base.py \
     --mixed_precision "bf16" \

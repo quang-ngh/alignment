@@ -6,7 +6,7 @@ from torchmetrics.multimodal.clip_score import CLIPScore
 from PIL import Image
 from torchvision.transforms import ToTensor
 import argparse
-from transformers import  AutoTokenizer, AutoProcessor, Qwen2_5_VLForConditionalGeneration
+from transformers import AutoTokenizer, AutoProcessor, Qwen2_5_VLForConditionalGeneration, AutoModelForImageTextToText
 from qwen_vl_utils import process_vision_info
 
 
@@ -134,7 +134,86 @@ Please respond with ONLY "Image 1" or "Image 2" to indicate which image is bette
         return refer_id, output_text
 
 
+# ========== Strategy 3: SmolVLM2 ==========
+class SmolVLM2Strategy:
+    def __init__(self, model_name="checkpoints/SmolVLM2-2.2B-Instruct"):
+        print(f"Loading SmolVLM2 model: {model_name}")
+        self.processor = AutoProcessor.from_pretrained(model_name, use_fast=True)
+        self.model = AutoModelForImageTextToText.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            _attn_implementation="flash_attention_2"
+        ).to(_DEVICE)
+        self.model.eval()
+        
+    def compare_images(self, image_0_path, image_1_path, prompt):
+        """
+        Compare two images using SmolVLM2.
+        Returns 1 if image_1 is better aligned, 0 if image_0 is better aligned.
+        """
+        # Create the prompt for VLM
+        instruction = f"""Given the following text prompt: "{prompt}"
+
+Please compare these two images and determine which one is better aligned with the text prompt. 
+Consider aspects like:
+- How well the image matches the description
+- Quality and clarity
+- Composition and aesthetics
+- Accuracy of elements mentioned in the prompt
+
+Please respond with ONLY "Image 1" or "Image 2" to indicate which image is better aligned with the prompt."""
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": instruction},
+                    {"type": "image", "url": image_0_path},
+                    {"type": "image", "url": image_1_path},
+                ]
+            },
+        ]
+        
+        # Prepare inputs
+        inputs = self.processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(self.model.device, dtype=torch.bfloat16)
+        
+        # Generate response
+        with torch.no_grad():
+            generated_ids = self.model.generate(**inputs, do_sample=False, max_new_tokens=128)
+        
+        output_text = self.processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+        )[0]
+        
+        # Parse response - extract only the assistant's response
+        if "Assistant:" in output_text:
+            output_text = output_text.split("Assistant:")[-1].strip()
+        
+        output_text_lower = output_text.lower().strip()
+        
+        # Determine which image is better
+        # Image 1 corresponds to image_0, Image 2 corresponds to image_1
+        if "image 2" in output_text_lower or "second" in output_text_lower:
+            refer_id = 1
+        elif "image 1" in output_text_lower or "first" in output_text_lower:
+            refer_id = 0
+        else:
+            # Default to 0 if unclear
+            print(f"Warning: Unclear VLM response: {output_text}. Defaulting to image 0.")
+            refer_id = 0
+            
+        return refer_id, output_text
+
+
 # ========== Main Generation Function ==========
+@torch.inference_mode()
 def generate_pseudo_labels(
     input_json_path,
     output_json_path,
@@ -169,8 +248,12 @@ def generate_pseudo_labels(
         if model_name is None:
             model_name = "Qwen/Qwen2-VL-7B-Instruct"
         strategy_model = QwenVLMStrategy(model_name=model_name)
+    elif strategy == "smolvlm2":
+        if model_name is None:
+            model_name = "checkpoints/SmolVLM2-2.2B-Instruct"
+        strategy_model = SmolVLM2Strategy(model_name=model_name)
     else:
-        raise ValueError(f"Unknown strategy: {strategy}. Choose 'clipscore' or 'qwen_vlm'")
+        raise ValueError(f"Unknown strategy: {strategy}. Choose 'clipscore', 'qwen_vlm', or 'smolvlm2'")
     
     # Process each sample
     results = []
@@ -206,7 +289,7 @@ def generate_pseudo_labels(
                     "score_0": float(score_0),
                     "score_1": float(score_1),
                 }
-            elif strategy == "qwen_vlm":
+            elif strategy in ["qwen_vlm", "smolvlm2"]:
                 refer_id, vlm_response = strategy_model.compare_images(
                     image_0_path, image_1_path, caption
                 )
@@ -263,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--strategy",
         type=str,
-        choices=["clipscore", "qwen_vlm"],
+        choices=["clipscore", "qwen_vlm", "smolvlm2"],
         default="clipscore",
         help="Strategy to use for generating pseudo labels"
     )

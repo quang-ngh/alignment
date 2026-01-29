@@ -46,8 +46,8 @@ def main(args):
     
     # Download the repository
     download_hf_repo(
-        repo_id="drproduck/hpdv2_fifa_100k_high_margin_sorted",
-        local_dir="/common/users/hn315/datasets/hpdv2_sorted",
+        repo_id="tungdnguyen/pickapic-5k-animated-flipped-30pct",
+        local_dir="datasets/pickapic-5k-animated-flipped-30pct",
         repo_type=repo_type,
     )
 

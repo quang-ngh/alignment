@@ -9,14 +9,23 @@ results=(
     # "main_results/partiprompts/sd15_dr_ots_clip"
     # "main_results/partiprompts/sd15_dr_ots_qwen"
     # "main_results/partiprompts/sd15_dr_ots_high_margin_pseudo_qwen"
-    "main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-50"
-    "main_results/partiprompts/sd15_sft_5k_checkpoint-100"
+    # "main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-50"
+    # "main_results/partiprompts/sd15_sft_5k_checkpoint-100"
+    # "main_results/partiprompts/sdxl_sft_5k_high_margin_checkpoint-100"
+    # "main_results/partiprompts/sd15_drdpo_25_75_khiem"
+    # "main_results/partiprompts/sd15_dr_pseudo_hpdv2_khiem"
+    # "main_results/partiprompts/sd15_dpo_hpdv2_1k25_khiem"
+    # "main_results/partiprompts/sd15_dpo_hpdv2_5k_khiem"
+    # "main_results/partiprompts/sd15_dpo_pseudo_hpdv2_khiem"
+    "main_results/partiprompts/sd15_dr_dpo_pseudo_flip80_ckpt100/random_seed_999"
+    "main_results/partiprompts/sd15_dpo_flip80_pseudo_ckpt100/random_seed_999"
 )
+
 for result in "${results[@]}"; do
     subfolder=$(echo "$result" | awk -F'/' '{print $3}')
     name="eval_results/main/aescore/${subfolder}"
     echo "Evaluating $name"
-    CUDA_VISIBLE_DEVICES=4 python evaluator.py \
+    CUDA_VISIBLE_DEVICES=3 python evaluator.py \
         benchmark_type="aescore" \
         image_dir=$result \
         prompt_dir="datasets/eval_prompts/partiprompts.json" \

@@ -3,7 +3,8 @@ import json
 import numpy as np
 import torch
 from diffusers import AutoencoderKL, StableDiffusionPipeline, UNet2DConditionModel, DPMSolverMultistepScheduler
-
+import random
+from tqdm import tqdm
 
 def generate_noise(n_samples=500, size=(4,64,64), seed=999):
     torch.manual_seed(seed)
@@ -68,7 +69,7 @@ def generate_hpsv2(
 
     #   Generate images
     pre_sample_latents = torch.load(noise_path, map_location="cpu")
-    for i in range(0, len(list_prompts), batch_size):
+    for i in tqdm(range(0, len(list_prompts), batch_size)):
         batch_prompts = list_prompts[i:i+batch_size]
         batch_noise = pre_sample_latents[i:i+batch_size].to(pipeline.device, dtype=dtype)
 
@@ -97,10 +98,27 @@ def generate_pickapic_test(
     end_idx: int=-1,
     dtype=torch.float16,
 ):
-    pre_sample_latents = torch.load(noise_path, map_location="cpu")
-    pre_sample_latents = pre_sample_latents.to(pipeline.device, dtype=dtype)
-
     list_prompts = json.load(open(json_path, "r"))
+
+    if noise_path != "":
+        print("Using pre-generated noise latents")
+        pre_sample_latents = torch.load(noise_path, map_location="cpu")
+        pre_sample_latents = pre_sample_latents.to(pipeline.device, dtype=dtype)
+        random_seed = 999
+
+    # else:
+    # random_seed = args.random_seed
+    # pre_sample_latents = generate_noise(
+    #     n_samples=len(list_prompts),
+    #     size=(4,128,128),
+    #     seed=random_seed,
+    # )
+    # pre_sample_latents = pre_sample_latents.to(pipeline.device, dtype=dtype)
+    save_dir = os.path.join(save_dir, f"random_seed_{random_seed}")
+    print(f"Using random seed {random_seed} for noise generation, generated {len(list_prompts)} noise latents")
+    print(f"Saving images to {save_dir}")
+
+    
     if end_idx < 0:
         end_idx = len(list_prompts)
     
@@ -109,7 +127,7 @@ def generate_pickapic_test(
     total_prompts = end_idx - start_idx
     check_generated = {}
 
-    for i in range(0, total_prompts, batch_size):
+    for i in tqdm(range(0, total_prompts, batch_size)):
         _run = True       #   check if the batch is already generated
 
         batch_prompts = list_prompts[start_idx + i:start_idx + i + batch_size]
