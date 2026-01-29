@@ -34,7 +34,7 @@ DR_ARGS="--mu 1.0 --threshold 0.0"
 
 # Shared arguments for external model commands (qwen/clip)
 LABELED_MANIFEST="datasets/pickapicv2_fifa/manifest/5k/labeled.json"
-UNLABELED_MANIFEST="datasets/pickapicv2_fifa/manifest/5k/labeled.json"
+UNLABELED_MANIFEST="datasets/pickapicv2_fifa/manifest/5k/unlabeled.json"
 
 case "$COMMAND" in
     "5k")
