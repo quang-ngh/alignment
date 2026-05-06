@@ -16,7 +16,7 @@ from tqdm import tqdm
 DEFAULT_PROMPT_GLOB = "datasets/eval_prompts/hpsv2_*.json"
 DEFAULT_OUTPUT_ROOT = "qual"
 DEFAULT_VAE_ROOT = "checkpoints"
-DEFAULT_VAE_SUBFOLDER = "sdxl_vae_fp16_fix"
+DEFAULT_VAE_SUBFOLDER = "sdxl_vae"
 
 
 def parse_args():
