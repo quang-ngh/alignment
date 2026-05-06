@@ -31,7 +31,7 @@ for result in "${results[@]}"; do
         benchmark_type="ir" \
         image_dir=$result \
         prompt_dir="datasets/eval_prompts/partiprompts.json" \
-        name="eval_results/main/ir/sd15_ablate_dpo_${subfolder}" &
+        name="eval_results/main/ir/sd15_ablate_dpo_${subfolder}"
 done
 
 # CUDA_VISIBLE_DEVICES=5 python evaluator.py \

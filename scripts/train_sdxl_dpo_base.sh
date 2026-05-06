@@ -6,7 +6,7 @@ lr_scheduler="piecewise_constant"
 MANIFEST="datasets/manifest_high_margin/5k_labeled_and_pseudo_unlabeled_qwen.json"
 OUTPUT_DIR="training_runs/sdxl_dpo_pseudo"
 
-accelerate launch --config-file "configs/train_sdxl_dpo_ddp.yaml" train_sdxl_dpo_base.py \
+accelerate launch --config-file "configs/train_sdxl_dpo.yaml" train_sdxl_dpo_base.py \
     --mixed_precision "bf16" \
     --pretrained_model_name_or_path $MODEL_PATH \
     --output_dir $OUTPUT_DIR \

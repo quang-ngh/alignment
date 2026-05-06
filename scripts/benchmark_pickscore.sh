@@ -75,7 +75,8 @@ results=(
   # "main_results/rebuttal_dpo/50_percent/dpo/random_seed_999"
   # "main_results/rebuttal_dpo/dpo_5k_25_75_animated/random_seed_999"
   # "main_results/rebuttal/dr_5k_25_75_animated/random_seed_999"
-  "main_results/rebuttal_dpo/dr_5k_25_75_animated/random_seed_999"
+  # "main_results/rebuttal_dpo/dr_5k_25_75_animated/random_seed_999"
+  "main_results/rebuttal_dr/20_percent_fix/checkpoint-100/random_seed_999"
 )
 
 # GPUs you want to use for evaluation (edit as needed)
@@ -89,7 +90,7 @@ job_i=0
 for result in "${results[@]}"; do
   # Extract 4th term: main_results/rebuttal/<term3>/<term4>/random_seed_999 -> term4
   subfolder=$(echo "$result" | awk -F'/' '{print $3}')
-  name="eval_results/rebuttal_dpo/pickscore/${subfolder}"
+  name="eval_results/rebuttal_dr/pickscore/${subfolder}"
   gpu="${GPUS[$((job_i % MAX_JOBS))]}"
 
   echo "Evaluating ${result} -> ${name} on GPU ${gpu}"

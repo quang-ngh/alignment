@@ -28,8 +28,9 @@ LIST_MODELS=(
   # "training_runs_common/noise_flip/30_percent/dpo/checkpoint-100/unet"
   # "training_runs_common/noise_flip/40_percent/dpo/checkpoint-100/unet"
   # "training_runs_common/noise_flip/50_percent/dpo/checkpoint-100/unet"
-  "training_runs_common/dpo_5k_25_75_animated/checkpoint-100/unet"
-  "training_runs/dr_5k_25_75_animated/checkpoint-100/unet"
+  # "training_runs_common/dpo_5k_25_75_animated/checkpoint-100/unet"
+  # "training_runs/dr_5k_25_75_animated/checkpoint-100/unet"
+  "training_runs_rebuttal_dr/noise_flip/20_percent_fix/checkpoint-100/unet"
 )
 
 # ---- Config (copied from your L22-L48 script) ----
@@ -43,7 +44,7 @@ GUIDANCE_SCALE=7.5
 INFERENCE_STEPS=20
 SPLIT_IDX=800
 
-SAVE_ROOT="./main_results/rebuttal_dpo"
+SAVE_ROOT="./main_results/rebuttal_dr"
 mkdir -p "$SAVE_ROOT"
 
 # Use 8 GPUs -> 4 pairs. Edit if your machine uses different IDs.
@@ -81,7 +82,7 @@ get_free_pair() {
 compute_save_dir() {
   local unet_path="$1"
   IFS='/' read -r t1 t2 t3 t4 rest <<< "$unet_path"
-  echo "${SAVE_ROOT}/${t2}"
+  echo "${SAVE_ROOT}/${t3}/${t4}"
 }
 
 launch_checkpoint_on_pair() {
