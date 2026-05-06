@@ -208,17 +208,17 @@ def generate_prompt_file(
 ):
     category_dir.mkdir(parents=True, exist_ok=True)
 
-    for start_idx in tqdm(
+    for batch_start_idx in tqdm(
         range(start_idx, end_idx, batch_size),
         desc=category_dir.name,
     ):
-        batch_end_idx = min(start_idx + batch_size, end_idx)
-        batch_prompts = prompts[start_idx:batch_end_idx]
+        batch_end_idx = min(batch_start_idx + batch_size, end_idx)
+        batch_prompts = prompts[batch_start_idx:batch_end_idx]
         pending_indices = []
         pending_prompts = []
 
         for offset, prompt in enumerate(batch_prompts):
-            prompt_idx = start_idx + offset
+            prompt_idx = batch_start_idx + offset
             image_path = category_dir / f"image_{prompt_idx:04d}.jpg"
             if image_path.exists():
                 continue

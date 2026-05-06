@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 DEFAULT_MODEL_PATH="/common/users/hn315/checkpoints/models--stabilityai--stable-diffusion-xl-base-1.0/snapshots/462165984030d82259a11f4367a4eed129e94a7b"
 
 if [[ $# -lt 2 ]]; then
@@ -25,6 +28,8 @@ PROMPT_GLOB="${PROMPT_GLOB:-datasets/eval_prompts/hpsv2_*.json}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-qual}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
+cd "$REPO_ROOT"
+
 if [[ -z "$GPU_SPEC" ]]; then
     if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
         GPU_SPEC="$CUDA_VISIBLE_DEVICES"
@@ -33,6 +38,7 @@ if [[ -z "$GPU_SPEC" ]]; then
     fi
 fi
 
+GPU_SPEC="${GPU_SPEC// /}"
 IFS=',' read -r -a GPU_ARRAY <<< "$GPU_SPEC"
 NUM_SHARDS="${#GPU_ARRAY[@]}"
 
@@ -48,7 +54,7 @@ for shard_index in "${!GPU_ARRAY[@]}"; do
     gpu_id="${GPU_ARRAY[$shard_index]}"
     echo "Launching shard $((shard_index + 1))/$NUM_SHARDS on GPU $gpu_id"
 
-    CUDA_VISIBLE_DEVICES="$gpu_id" "$PYTHON_BIN" generate_sdxl_qual.py \
+    CUDA_VISIBLE_DEVICES="$gpu_id" "$PYTHON_BIN" "$REPO_ROOT/generate_sdxl_qual.py" \
         --model_path "$MODEL_PATH" \
         --unet_path "$UNET_PATH" \
         --seed "$SEED" \
